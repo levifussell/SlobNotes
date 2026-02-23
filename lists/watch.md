@@ -5,6 +5,4 @@
 
 # Podcast
 
-- Hardware From Scratch w/ Alex Evans:
-  - https://www.patreon.com/posts/hardware-from-150764565
-  - @1:00:00
+-

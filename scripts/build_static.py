@@ -21,7 +21,15 @@ from cryptography.hazmat.primitives import hashes
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 VIEWER_STATIC = ROOT / "viewer" / "static"
-SKIP_DIRS = {".git", ".venv", "viewer", "scripts", "__pycache__", "node_modules", "dist"}
+SKIP_DIRS = {
+    ".git",
+    ".venv",
+    "viewer",
+    "scripts",
+    "__pycache__",
+    "node_modules",
+    "dist",
+}
 
 PBKDF2_ITERATIONS = 600_000
 
@@ -94,12 +102,14 @@ def scan_notes():
                 text = ""
 
             stat = fp.stat()
-            notes.append({
-                "path": rel,
-                "title": title,
-                "tags": tags,
-                "modified": stat.st_mtime,
-            })
+            notes.append(
+                {
+                    "path": rel,
+                    "title": title,
+                    "tags": tags,
+                    "modified": stat.st_mtime,
+                }
+            )
             contents[rel] = text
 
     notes.sort(key=lambda n: n["modified"], reverse=True)
@@ -134,12 +144,15 @@ def build():
     notes, tag_levels, tag_parents, contents = scan_notes()
     print(f"  Found {len(notes)} notes")
 
-    payload = json.dumps({
-        "notes": notes,
-        "tagLevels": tag_levels,
-        "tagParents": tag_parents,
-        "contents": contents,
-    }, ensure_ascii=False)
+    payload = json.dumps(
+        {
+            "notes": notes,
+            "tagLevels": tag_levels,
+            "tagParents": tag_parents,
+            "contents": contents,
+        },
+        ensure_ascii=False,
+    )
 
     print("Encrypting...")
     encrypted = encrypt(payload.encode("utf-8"), password)
@@ -171,7 +184,7 @@ def write_static_html():
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>slob</title>
+  <title>slob notes</title>
   <link rel="stylesheet" href="theme.css">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -222,7 +235,7 @@ def write_static_html():
 <body>
   <!-- Password gate -->
   <div id="lock-screen">
-    <div class="lock-title">slob</div>
+    <div class="lock-title">slob notes</div>
     <form id="lock-form" onsubmit="return handleUnlock(event)">
       <input type="password" id="lock-input" placeholder="password" autofocus>
     </form>
@@ -232,7 +245,7 @@ def write_static_html():
   <div id="app" class="locked">
     <div id="toolbar">
       <button class="btn" id="btn-sidebar" onclick="toggleSidebar()">List</button>
-      <span class="logo">slob</span>
+      <span class="logo">slob notes</span>
       <button class="btn" id="btn-palette" onclick="cyclePalette()">Default</button>
     </div>
     <div id="panels">
@@ -267,7 +280,7 @@ def write_static_html():
 
 
 def write_static_js():
-    js = r"""/* ── slob static (read-only, encrypted) ── */
+    js = r"""/* ── slob notes static (read-only, encrypted) ── */
 
 /* ── State ── */
 let allNotes = [];
