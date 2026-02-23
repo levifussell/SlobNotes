@@ -62,17 +62,23 @@ def extract_tags_and_title(filepath: Path):
     for t in low_tags:
         tag_levels[t] = "low"
 
-    return title, all_tags, tag_levels
+    # Map each mid tag to its parent top tag
+    tag_parents = {}
+    if top_tags and mid_tags:
+        for t in mid_tags:
+            tag_parents[t] = top_tags[0]
+
+    return title, all_tags, tag_levels, tag_parents
 
 
 def scan_notes():
     """Walk ROOT and collect all .md files with metadata.
 
-    Returns (notes_list, tag_levels_dict) where tag_levels_dict is a global
-    mapping of tag -> "top" | "mid" | "low".
+    Returns (notes_list, tag_levels_dict, tag_parents_dict).
     """
     notes = []
     global_tag_levels = {}
+    global_tag_parents = {}
     for dirpath, dirnames, filenames in os.walk(ROOT):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for fname in sorted(filenames):
@@ -80,8 +86,9 @@ def scan_notes():
                 continue
             fp = Path(dirpath) / fname
             rel = str(fp.relative_to(ROOT))
-            title, tags, tag_levels = extract_tags_and_title(fp)
+            title, tags, tag_levels, tag_parents = extract_tags_and_title(fp)
             global_tag_levels.update(tag_levels)
+            global_tag_parents.update(tag_parents)
             stat = fp.stat()
             notes.append({
                 "path": rel,
@@ -90,19 +97,20 @@ def scan_notes():
                 "modified": stat.st_mtime,
             })
     notes.sort(key=lambda n: n["modified"], reverse=True)
-    return notes, global_tag_levels
+    return notes, global_tag_levels, global_tag_parents
 
 
 # In-memory cache
 _notes_cache = []
 _tag_levels_cache = {}
+_tag_parents_cache = {}
 
 
 def get_notes():
-    global _notes_cache, _tag_levels_cache
+    global _notes_cache, _tag_levels_cache, _tag_parents_cache
     if not _notes_cache:
-        _notes_cache, _tag_levels_cache = scan_notes()
-    return _notes_cache, _tag_levels_cache
+        _notes_cache, _tag_levels_cache, _tag_parents_cache = scan_notes()
+    return _notes_cache, _tag_levels_cache, _tag_parents_cache
 
 
 # --- Routes ---
@@ -114,8 +122,8 @@ def index():
 
 @app.route("/api/notes")
 def api_notes():
-    notes, tag_levels = get_notes()
-    return jsonify({"notes": notes, "tagLevels": tag_levels})
+    notes, tag_levels, tag_parents = get_notes()
+    return jsonify({"notes": notes, "tagLevels": tag_levels, "tagParents": tag_parents})
 
 
 @app.route("/api/note/<path:note_path>")
@@ -146,9 +154,9 @@ def api_save_note(note_path):
 
 @app.route("/api/rebuild", methods=["POST"])
 def api_rebuild():
-    global _notes_cache, _tag_levels_cache
-    _notes_cache, _tag_levels_cache = scan_notes()
-    return jsonify({"notes": _notes_cache, "tagLevels": _tag_levels_cache})
+    global _notes_cache, _tag_levels_cache, _tag_parents_cache
+    _notes_cache, _tag_levels_cache, _tag_parents_cache = scan_notes()
+    return jsonify({"notes": _notes_cache, "tagLevels": _tag_levels_cache, "tagParents": _tag_parents_cache})
 
 
 @app.route("/files/<path:file_path>")
@@ -161,7 +169,7 @@ def serve_file(file_path):
 
 
 if __name__ == "__main__":
-    _notes_cache, _tag_levels_cache = scan_notes()
+    _notes_cache, _tag_levels_cache, _tag_parents_cache = scan_notes()
     print(f"Serving notes from: {ROOT}")
     print(f"Found {len(_notes_cache)} notes")
     app.run(host="127.0.0.1", port=5000, debug=True)

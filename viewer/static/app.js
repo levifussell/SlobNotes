@@ -1,6 +1,7 @@
 /* ── State ── */
 let allNotes = [];
 let tagLevels = {};       // { tagName: "top"|"mid"|"low" }
+let tagParents = {};      // { midTag: "parentTopTag" }
 let activeTags = new Set();
 let filterMode = "only";  // "only" | "or" | "and"
 let selectedNote = null;
@@ -21,6 +22,7 @@ async function fetchNotes() {
   const data = await res.json();
   allNotes = data.notes;
   tagLevels = data.tagLevels;
+  tagParents = data.tagParents || {};
   buildTagBar();
   renderNoteList();
 }
@@ -32,6 +34,7 @@ async function rebuild() {
   const data = await res.json();
   allNotes = data.notes;
   tagLevels = data.tagLevels;
+  tagParents = data.tagParents || {};
   buildTagBar();
   renderNoteList();
   btn.textContent = "Rebuild";
@@ -121,6 +124,13 @@ function buildTagBar() {
   bar.innerHTML = "";
   tags.forEach(tag => {
     const level = tagLevels[tag] || "low";
+
+    // Mid tags: only show if parent is active OR this mid tag itself is active
+    if (level === "mid") {
+      const parent = tagParents[tag];
+      if (!activeTags.has(tag) && (!parent || !activeTags.has(parent))) return;
+    }
+
     const pill = document.createElement("button");
     pill.className = "tag-pill level-" + level + (activeTags.has(tag) ? " active" : "");
     pill.textContent = tag;
@@ -133,8 +143,10 @@ function toggleTag(tag) {
   if (filterMode === "only") {
     // ONLY mode: clicking a tag unselects all others
     if (activeTags.has(tag) && activeTags.size === 1) {
+      // Clicking the sole active tag deselects it
       activeTags.clear();
     } else {
+      // Select only this tag (mid tags stay visible because they're active)
       activeTags.clear();
       activeTags.add(tag);
     }
