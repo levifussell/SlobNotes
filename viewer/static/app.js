@@ -9,8 +9,136 @@ let editVisible = false;
 let renderVisible = false;
 let dirty = false;
 
+/* ── Palettes ── */
+const PALETTES = {
+  "Default": {
+    "--bg":            "#1D2B53",
+    "--bg-alt":        "#121B35",
+    "--surface":       "#2A3A6A",
+    "--surface-hover": "#3A4A7A",
+    "--border":        "#4A5A8A",
+    "--text":          "#FFF1E8",
+    "--text-muted":    "#83769C",
+    "--text-dim":      "#5F5678",
+    "--accent":        "#FF004D",
+    "--accent-hover":  "#FF3377",
+    "--tag-top":       "#FFF1E8",
+    "--tag-mid":       "#FFA300",
+    "--tag-low":       "#29ADFF",
+    "--tag-text":      "#000000",
+    "--tag-active":    "#FF004D",
+    "--success":       "#00E436",
+    "--warn":          "#FFA300",
+  },
+  "Mononoke": {
+    "--bg":            "#1A2418",
+    "--bg-alt":        "#111A0F",
+    "--surface":       "#2B3626",
+    "--surface-hover": "#3B4A33",
+    "--border":        "#4A5E3E",
+    "--text":          "#E8E4D9",
+    "--text-muted":    "#8A9A78",
+    "--text-dim":      "#5A6B4E",
+    "--accent":        "#C23B22",
+    "--accent-hover":  "#D95040",
+    "--tag-top":       "#E8E4D9",
+    "--tag-mid":       "#D4A843",
+    "--tag-low":       "#6BAF7A",
+    "--tag-text":      "#111A0F",
+    "--tag-active":    "#C23B22",
+    "--success":       "#6BAF7A",
+    "--warn":          "#D4A843",
+  },
+  "County Highway": {
+    "--bg":            "#2C2C2E",
+    "--bg-alt":        "#1C1C1E",
+    "--surface":       "#3A3A3C",
+    "--surface-hover": "#48484A",
+    "--border":        "#5A5A5E",
+    "--text":          "#F2F2F0",
+    "--text-muted":    "#8E8E93",
+    "--text-dim":      "#636366",
+    "--accent":        "#FFB814",
+    "--accent-hover":  "#FFCB45",
+    "--tag-top":       "#F2F2F0",
+    "--tag-mid":       "#FFB814",
+    "--tag-low":       "#2D9B4E",
+    "--tag-text":      "#1C1C1E",
+    "--tag-active":    "#FFB814",
+    "--success":       "#2D9B4E",
+    "--warn":          "#FFB814",
+  },
+  "Deepsea Jellyfish": {
+    "--bg":            "#0A0E1A",
+    "--bg-alt":        "#060912",
+    "--surface":       "#121833",
+    "--surface-hover": "#1C2448",
+    "--border":        "#2A3366",
+    "--text":          "#C8F0F8",
+    "--text-muted":    "#5A7A99",
+    "--text-dim":      "#2E4A66",
+    "--accent":        "#E040A0",
+    "--accent-hover":  "#F060C0",
+    "--tag-top":       "#C8F0F8",
+    "--tag-mid":       "#A060E0",
+    "--tag-low":       "#20D0D0",
+    "--tag-text":      "#060912",
+    "--tag-active":    "#E040A0",
+    "--success":       "#20D0D0",
+    "--warn":          "#E0A020",
+  },
+  "Daylight": {
+    "--bg":            "#F4F1EC",
+    "--bg-alt":        "#E8E4DD",
+    "--surface":       "#DBD7CF",
+    "--surface-hover": "#CECAC1",
+    "--border":        "#B8B4AB",
+    "--text":          "#2C2C2C",
+    "--text-muted":    "#6E6E6E",
+    "--text-dim":      "#9E9E9E",
+    "--accent":        "#1A1A1A",
+    "--accent-hover":  "#3A3A3A",
+    "--tag-top":       "#2C2C2C",
+    "--tag-mid":       "#5A5A5A",
+    "--tag-low":       "#7A7A7A",
+    "--tag-text":      "#F4F1EC",
+    "--tag-active":    "#1A1A1A",
+    "--success":       "#3A7A3A",
+    "--warn":          "#8A6A20",
+  },
+};
+
+const PALETTE_NAMES = Object.keys(PALETTES);
+let currentPaletteIndex = 0;
+
+function applyPalette(name) {
+  const vars = PALETTES[name];
+  if (!vars) return;
+  const root = document.documentElement;
+  for (const [prop, val] of Object.entries(vars)) {
+    root.style.setProperty(prop, val);
+  }
+  const btn = document.getElementById("btn-palette");
+  if (btn) btn.textContent = name;
+  localStorage.setItem("notesViewerPalette", name);
+}
+
+function cyclePalette() {
+  currentPaletteIndex = (currentPaletteIndex + 1) % PALETTE_NAMES.length;
+  applyPalette(PALETTE_NAMES[currentPaletteIndex]);
+}
+
+function loadSavedPalette() {
+  const saved = localStorage.getItem("notesViewerPalette");
+  if (saved && PALETTES[saved]) {
+    currentPaletteIndex = PALETTE_NAMES.indexOf(saved);
+    applyPalette(saved);
+  }
+}
+
 /* ── Init ── */
 document.addEventListener("DOMContentLoaded", () => {
+  loadSavedPalette();
   fetchNotes();
   initResize();
   initKeyboard();
