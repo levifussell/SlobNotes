@@ -236,8 +236,9 @@ def write_static_html():
   <!-- Password gate -->
   <div id="lock-screen">
     <div class="lock-title">slob notes</div>
-    <form id="lock-form" onsubmit="return handleUnlock(event)">
+    <form id="lock-form" onsubmit="return handleUnlock(event)" style="display:flex;flex-direction:column;align-items:center;gap:var(--gap)">
       <input type="password" id="lock-input" placeholder="password" autofocus>
+      <button type="submit" class="btn" style="width:260px">Enter</button>
     </form>
     <div id="lock-error"></div>
   </div>
