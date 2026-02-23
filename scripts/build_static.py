@@ -391,13 +391,49 @@ async function decryptBlob(encBytes, password) {
   return new TextDecoder().decode(plain);
 }
 
-/* ── Unlock ── */
+/* ── Unlock + Rate Limiting ── */
 let encryptedData = null;
+let failCount = 0;
+let lockedUntil = 0;
+let countdownInterval = null;
+
+function getLockoutSeconds() {
+  // After 3 fails: 60s, then 120s, 240s, 480s, ...
+  const exponent = failCount - 3;
+  return 60 * Math.pow(2, exponent);
+}
+
+function startCountdown() {
+  const errEl = document.getElementById("lock-error");
+  const input = document.getElementById("lock-input");
+  const btn = document.querySelector("#lock-form button[type=submit]");
+  input.disabled = true;
+  if (btn) btn.disabled = true;
+
+  countdownInterval = setInterval(() => {
+    const remaining = Math.ceil((lockedUntil - Date.now()) / 1000);
+    if (remaining <= 0) {
+      clearInterval(countdownInterval);
+      countdownInterval = null;
+      errEl.textContent = "";
+      input.disabled = false;
+      if (btn) btn.disabled = false;
+      input.focus();
+      return;
+    }
+    const m = Math.floor(remaining / 60);
+    const s = remaining % 60;
+    errEl.textContent = `Too many attempts. Wait ${m}:${String(s).padStart(2, "0")}`;
+  }, 250);
+}
 
 async function handleUnlock(e) {
   e.preventDefault();
-  const pw = document.getElementById("lock-input").value;
   const errEl = document.getElementById("lock-error");
+
+  if (Date.now() < lockedUntil) return false;
+
+  const pw = document.getElementById("lock-input").value;
   errEl.textContent = "";
 
   if (!encryptedData) {
@@ -417,6 +453,7 @@ async function handleUnlock(e) {
     tagLevels = data.tagLevels;
     tagParents = data.tagParents || {};
     noteContents = data.contents;
+    failCount = 0;
 
     // Unlock UI
     document.getElementById("lock-screen").classList.add("hidden");
@@ -426,9 +463,16 @@ async function handleUnlock(e) {
     initResize();
     initKeyboard();
   } catch {
-    errEl.textContent = "Wrong password";
+    failCount++;
     document.getElementById("lock-input").value = "";
-    document.getElementById("lock-input").focus();
+
+    if (failCount >= 3) {
+      lockedUntil = Date.now() + getLockoutSeconds() * 1000;
+      startCountdown();
+    } else {
+      errEl.textContent = `Wrong password (${3 - failCount} attempts left)`;
+      document.getElementById("lock-input").focus();
+    }
   }
   return false;
 }
