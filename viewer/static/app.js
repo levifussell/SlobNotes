@@ -1,0 +1,332 @@
+/* ── State ── */
+let allNotes = [];
+let tagLevels = {};       // { tagName: "top"|"mid"|"low" }
+let activeTags = new Set();
+let filterMode = "only";  // "only" | "or" | "and"
+let selectedNote = null;
+let editVisible = false;
+let renderVisible = false;
+let dirty = false;
+
+/* ── Init ── */
+document.addEventListener("DOMContentLoaded", () => {
+  fetchNotes();
+  initResize();
+  initKeyboard();
+});
+
+/* ── API ── */
+async function fetchNotes() {
+  const res = await fetch("/api/notes");
+  const data = await res.json();
+  allNotes = data.notes;
+  tagLevels = data.tagLevels;
+  buildTagBar();
+  renderNoteList();
+}
+
+async function rebuild() {
+  const btn = document.getElementById("btn-rebuild");
+  btn.textContent = "...";
+  const res = await fetch("/api/rebuild", { method: "POST" });
+  const data = await res.json();
+  allNotes = data.notes;
+  tagLevels = data.tagLevels;
+  buildTagBar();
+  renderNoteList();
+  btn.textContent = "Rebuild";
+}
+
+async function loadNote(path) {
+  const res = await fetch(`/api/note/${encodeURIComponent(path)}`);
+  const data = await res.json();
+  selectedNote = data;
+  dirty = false;
+
+  document.getElementById("current-path").textContent = path;
+  document.getElementById("empty-state").style.display = "none";
+
+  // Update editor
+  document.getElementById("editor").value = data.content;
+
+  // Update rendered view
+  renderMarkdown(data.content);
+
+  // Show render by default if nothing is visible
+  if (!editVisible && !renderVisible) {
+    toggleRender();
+  }
+
+  // Update list selection
+  document.querySelectorAll(".note-item").forEach(el => {
+    el.classList.toggle("selected", el.dataset.path === path);
+  });
+}
+
+async function saveNote() {
+  if (!selectedNote) return;
+  const content = document.getElementById("editor").value;
+  const status = document.getElementById("save-status");
+  status.textContent = "Saving...";
+  status.style.color = "var(--warn)";
+
+  try {
+    const res = await fetch(`/api/note/${encodeURIComponent(selectedNote.path)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      status.textContent = "Saved";
+      status.style.color = "var(--success)";
+      dirty = false;
+      selectedNote.content = content;
+      renderMarkdown(content);
+      setTimeout(() => { status.textContent = ""; }, 2000);
+    } else {
+      status.textContent = "Error: " + (data.error || "unknown");
+      status.style.color = "var(--accent)";
+    }
+  } catch (e) {
+    status.textContent = "Error: " + e.message;
+    status.style.color = "var(--accent)";
+  }
+}
+
+/* ── Filter Mode ── */
+function setFilterMode(mode) {
+  filterMode = mode;
+  document.querySelectorAll(".mode-btn").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.mode === mode);
+  });
+  renderNoteList();
+}
+
+/* ── Tag Bar ── */
+function buildTagBar() {
+  const tagSet = new Set();
+  allNotes.forEach(n => n.tags.forEach(t => tagSet.add(t)));
+
+  // Sort: top first, then mid, then low; alphabetical within each tier
+  const levelOrder = { top: 0, mid: 1, low: 2 };
+  const tags = Array.from(tagSet).sort((a, b) => {
+    const la = levelOrder[tagLevels[a] || "low"];
+    const lb = levelOrder[tagLevels[b] || "low"];
+    if (la !== lb) return la - lb;
+    return a.localeCompare(b);
+  });
+
+  const bar = document.getElementById("tag-bar");
+  bar.innerHTML = "";
+  tags.forEach(tag => {
+    const level = tagLevels[tag] || "low";
+    const pill = document.createElement("button");
+    pill.className = "tag-pill level-" + level + (activeTags.has(tag) ? " active" : "");
+    pill.textContent = tag;
+    pill.onclick = () => toggleTag(tag);
+    bar.appendChild(pill);
+  });
+}
+
+function toggleTag(tag) {
+  if (filterMode === "only") {
+    // ONLY mode: clicking a tag unselects all others
+    if (activeTags.has(tag) && activeTags.size === 1) {
+      activeTags.clear();
+    } else {
+      activeTags.clear();
+      activeTags.add(tag);
+    }
+  } else {
+    // OR / AND mode: toggle individually
+    if (activeTags.has(tag)) {
+      activeTags.delete(tag);
+    } else {
+      activeTags.add(tag);
+    }
+  }
+  buildTagBar();
+  renderNoteList();
+}
+
+/* ── Note List ── */
+function getFilteredNotes() {
+  if (activeTags.size === 0) return allNotes;
+  const tags = Array.from(activeTags);
+
+  if (filterMode === "and") {
+    // AND: note must have ALL active tags
+    return allNotes.filter(n => tags.every(t => n.tags.includes(t)));
+  } else {
+    // OR and ONLY: note must have ANY active tag
+    return allNotes.filter(n => tags.some(t => n.tags.includes(t)));
+  }
+}
+
+function renderNoteList() {
+  const list = document.getElementById("note-list");
+  const notes = getFilteredNotes();
+  list.innerHTML = "";
+
+  notes.forEach(n => {
+    const item = document.createElement("div");
+    item.className = "note-item" + (selectedNote && selectedNote.path === n.path ? " selected" : "");
+    item.dataset.path = n.path;
+    item.onclick = () => loadNote(n.path);
+
+    const title = document.createElement("div");
+    title.className = "note-title";
+    title.textContent = n.title;
+
+    const meta = document.createElement("div");
+    meta.className = "note-meta";
+    n.tags.forEach(t => {
+      const span = document.createElement("span");
+      const level = tagLevels[t] || "low";
+      span.className = "tag level-" + level;
+      span.textContent = t;
+      meta.appendChild(span);
+    });
+
+    item.appendChild(title);
+    item.appendChild(meta);
+    list.appendChild(item);
+  });
+}
+
+/* ── Right Panel ── */
+function toggleEdit() {
+  editVisible = !editVisible;
+  document.getElementById("btn-edit").classList.toggle("active", editVisible);
+  document.getElementById("editor-pane").classList.toggle("visible", editVisible);
+  updateRightContentClass();
+  hideEmptyState();
+}
+
+function toggleRender() {
+  renderVisible = !renderVisible;
+  document.getElementById("btn-render").classList.toggle("active", renderVisible);
+  document.getElementById("render-pane").classList.toggle("visible", renderVisible);
+  updateRightContentClass();
+  hideEmptyState();
+}
+
+function updateRightContentClass() {
+  const rc = document.getElementById("right-content");
+  rc.classList.toggle("split", editVisible && renderVisible);
+}
+
+function hideEmptyState() {
+  if (editVisible || renderVisible) {
+    document.getElementById("empty-state").style.display = "none";
+  }
+}
+
+/* ── Markdown Rendering ── */
+function renderMarkdown(md) {
+  // Configure marked
+  marked.setOptions({
+    breaks: true,
+    gfm: true,
+  });
+
+  // Custom renderer for links and images
+  const renderer = new marked.Renderer();
+
+  renderer.link = function ({ href, title, text }) {
+    const titleAttr = title ? ` title="${title}"` : "";
+    // Make external links open in new tab
+    const isExternal = href && (href.startsWith("http://") || href.startsWith("https://"));
+    const target = isExternal ? ' target="_blank" rel="noopener"' : "";
+    return `<a href="${href}"${titleAttr}${target}>${text}</a>`;
+  };
+
+  renderer.image = function ({ href, title, text }) {
+    // Rewrite relative image paths to go through /files/
+    let src = href;
+    if (href && !href.startsWith("http://") && !href.startsWith("https://") && !href.startsWith("/")) {
+      // Relative to note's directory
+      if (selectedNote) {
+        const dir = selectedNote.path.split("/").slice(0, -1).join("/");
+        src = `/files/${dir ? dir + "/" : ""}${href}`;
+      } else {
+        src = `/files/${href}`;
+      }
+    }
+    const titleAttr = title ? ` title="${title}"` : "";
+    const alt = text || "";
+    return `<img src="${src}" alt="${alt}"${titleAttr}>`;
+  };
+
+  // Handle checkbox syntax: [] and [x]
+  let processed = md.replace(/^\[\s*\]/gm, "- [ ]");
+  processed = processed.replace(/^\[x\]/gm, "- [x]");
+  // Handle indented checkboxes
+  processed = processed.replace(/^(\s+)\[\s*\]/gm, "$1- [ ]");
+  processed = processed.replace(/^(\s+)\[x\]/gm, "$1- [x]");
+
+  // Auto-link bare URLs that aren't already in markdown link syntax
+  processed = processed.replace(
+    /(?<!\()(https?:\/\/[^\s\)>\]]+)/g,
+    (match, url, offset, str) => {
+      // Don't linkify if inside a markdown link already
+      const before = str.substring(Math.max(0, offset - 2), offset);
+      if (before.endsWith("](") || before.endsWith("](")) return match;
+      return `[${url}](${url})`;
+    }
+  );
+
+  const html = marked.parse(processed, { renderer });
+  document.getElementById("rendered").innerHTML = html;
+}
+
+/* ── Resize Handle ── */
+function initResize() {
+  const handle = document.getElementById("resize-handle");
+  const left = document.getElementById("left-panel");
+  let dragging = false;
+
+  handle.addEventListener("mousedown", (e) => {
+    dragging = true;
+    handle.classList.add("dragging");
+    e.preventDefault();
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const x = e.clientX;
+    const min = 200;
+    const max = window.innerWidth * 0.6;
+    left.style.width = Math.max(min, Math.min(max, x)) + "px";
+  });
+
+  document.addEventListener("mouseup", () => {
+    dragging = false;
+    handle.classList.remove("dragging");
+  });
+}
+
+/* ── Keyboard Shortcuts ── */
+function initKeyboard() {
+  document.addEventListener("keydown", (e) => {
+    // Ctrl+S to save
+    if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+      e.preventDefault();
+      if (editVisible && selectedNote) saveNote();
+    }
+    // Escape to deselect
+    if (e.key === "Escape") {
+      if (document.activeElement === document.getElementById("editor")) {
+        document.getElementById("editor").blur();
+      }
+    }
+  });
+
+  // Track dirty state
+  document.getElementById("editor").addEventListener("input", () => {
+    dirty = true;
+    document.getElementById("save-status").textContent = "Unsaved changes";
+    document.getElementById("save-status").style.color = "var(--warn)";
+  });
+}

@@ -1,0 +1,44 @@
+/*
+ * THEME — Teenage Engineering x Pico-8
+ * Edit these variables to customize the palette and fonts.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=Space+Mono:wght@400;700&display=swap');
+
+:root {
+  /* ── Color Palette (Pico-8 inspired) ── */
+  --bg:            #1D2B53;   /* dark navy          */
+  --bg-alt:        #121B35;   /* deeper navy        */
+  --surface:       #2A3A6A;   /* panel backgrounds   */
+  --surface-hover: #3A4A7A;   /* hover state         */
+  --border:        #4A5A8A;   /* borders             */
+
+  --text:          #FFF1E8;   /* warm white          */
+  --text-muted:    #83769C;   /* lavender grey       */
+  --text-dim:      #5F5678;   /* dimmed text         */
+
+  --accent:        #FF004D;   /* hot pink            */
+  --accent-hover:  #FF3377;   /* lighter pink        */
+  --tag-top:       #FFF1E8;   /* bright white — top-level (dirs)  */
+  --tag-mid:       #FFA300;   /* orange — mid-level (subdirs)    */
+  --tag-low:       #29ADFF;   /* sky blue — low-level (file tags)*/
+  --tag-text:      #000000;   /* tag label                       */
+  --tag-active:    #FF004D;   /* active filter tag                */
+  --success:       #00E436;   /* green               */
+  --warn:          #FFA300;   /* orange              */
+
+  /* ── Font Palette ── */
+  --font-mono:     "Space Mono", "IBM Plex Mono", "Courier New", monospace;
+  --font-body:     "Space Grotesk", "IBM Plex Sans", "Helvetica Neue", sans-serif;
+  --font-size-xs:  11px;
+  --font-size-sm:  12px;
+  --font-size-base: 14px;
+  --font-size-lg:  16px;
+  --font-size-xl:  20px;
+
+  /* ── Spacing ── */
+  --gap:           8px;
+  --gap-lg:        16px;
+  --radius:        3px;
+  --border-w:      2px;
+}

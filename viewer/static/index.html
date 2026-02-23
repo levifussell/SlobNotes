@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>notes</title>
+  <link rel="stylesheet" href="/static/theme.css">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <!-- Toolbar -->
+    <div id="toolbar">
+      <span class="logo">notes</span>
+      <button class="btn" id="btn-rebuild" onclick="rebuild()">Rebuild</button>
+    </div>
+
+    <!-- Panels -->
+    <div id="panels">
+      <!-- Left -->
+      <div id="left-panel">
+        <div id="filter-mode">
+          <button class="mode-btn active" data-mode="only" onclick="setFilterMode('only')">Only</button>
+          <button class="mode-btn" data-mode="or" onclick="setFilterMode('or')">Or</button>
+          <button class="mode-btn" data-mode="and" onclick="setFilterMode('and')">And</button>
+        </div>
+        <div id="tag-bar"></div>
+        <div id="note-list"></div>
+      </div>
+
+      <div id="resize-handle"></div>
+
+      <!-- Right -->
+      <div id="right-panel">
+        <div id="right-toolbar">
+          <span class="note-path" id="current-path">Select a note</span>
+          <button class="btn" id="btn-edit" onclick="toggleEdit()">Edit</button>
+          <button class="btn" id="btn-render" onclick="toggleRender()">Render</button>
+        </div>
+        <div id="right-content">
+          <div id="empty-state">Select a note to view</div>
+          <div id="editor-pane">
+            <textarea id="editor" spellcheck="false"></textarea>
+            <div id="editor-footer">
+              <button class="btn" onclick="saveNote()">Save</button>
+              <span id="save-status"></span>
+            </div>
+          </div>
+          <div id="render-pane">
+            <div id="rendered"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
