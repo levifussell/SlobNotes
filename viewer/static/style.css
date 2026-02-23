@@ -506,3 +506,33 @@ html, body {
 #right-content.split #editor-pane {
   border-right: var(--border-w) solid var(--border);
 }
+
+/* ── Sidebar toggle (hidden on desktop) ── */
+#btn-sidebar {
+  display: none;
+}
+
+/* ── Mobile ── */
+@media (max-width: 768px) {
+  #btn-sidebar {
+    display: inline-block;
+  }
+
+  #resize-handle {
+    display: none;
+  }
+
+  #left-panel {
+    display: none;
+    position: fixed;
+    inset: 0;
+    width: 100% !important;
+    min-width: 0;
+    z-index: 100;
+    border-right: none;
+  }
+
+  #left-panel.mobile-open {
+    display: flex;
+  }
+}

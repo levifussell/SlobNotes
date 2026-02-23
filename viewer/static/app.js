@@ -136,6 +136,17 @@ function loadSavedPalette() {
   }
 }
 
+/* ── Mobile Sidebar ── */
+function toggleSidebar() {
+  document.getElementById("left-panel").classList.toggle("mobile-open");
+}
+
+function closeSidebarOnSelect() {
+  if (window.innerWidth <= 768) {
+    document.getElementById("left-panel").classList.remove("mobile-open");
+  }
+}
+
 /* ── Init ── */
 document.addEventListener("DOMContentLoaded", () => {
   loadSavedPalette();
@@ -192,6 +203,8 @@ async function loadNote(path) {
   document.querySelectorAll(".note-item").forEach(el => {
     el.classList.toggle("selected", el.dataset.path === path);
   });
+
+  closeSidebarOnSelect();
 }
 
 async function saveNote() {
