@@ -84,6 +84,112 @@ html, body {
   display: block;
 }
 
+/* ── Dropdown ── */
+.dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.dropdown-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 240px;
+  background: var(--bg-alt);
+  border: var(--border-w) solid var(--border);
+  z-index: 200;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.dropdown-menu.open {
+  display: block;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.1s;
+  border-bottom: 1px solid var(--border);
+}
+
+.dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.dropdown-item:hover {
+  background: var(--surface);
+}
+
+.dropdown-item.active {
+  background: var(--surface);
+  border-left: 3px solid var(--accent);
+}
+
+.dropdown-item .source-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdown-item .source-path {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+
+.dropdown-item .remove-btn {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 4px;
+  opacity: 0;
+  transition: opacity 0.1s, color 0.1s;
+}
+
+.dropdown-item:hover .remove-btn {
+  opacity: 1;
+}
+
+.dropdown-item .remove-btn:hover {
+  color: var(--accent);
+}
+
+.dropdown-action {
+  display: block;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  border-top: 1px solid var(--border);
+}
+
+.dropdown-action:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
 /* ── Modal ── */
 .modal-overlay {
   position: fixed;
@@ -661,5 +767,9 @@ html, body {
   .btn-add,
   .btn-add-note {
     display: none !important;
+  }
+
+  #source-dropdown {
+    display: none;
   }
 }

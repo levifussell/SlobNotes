@@ -10,8 +10,9 @@ from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory, abort
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-NOTES_ROOT = REPO_ROOT / "notes"
+NOTES_ROOT = Path(os.environ.get("NOTES_ROOT", REPO_ROOT / "notes")).resolve()
 SKIP_DIRS = {".git", ".venv", "__pycache__", "node_modules"}
+SOURCES_FILE = REPO_ROOT / "tool" / "sources.json"
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 
@@ -82,6 +83,8 @@ def scan_notes():
     notes = []
     global_tag_levels = {}
     global_tag_parents = {}
+    if not NOTES_ROOT.is_dir():
+        return notes, global_tag_levels, global_tag_parents
     for dirpath, dirnames, filenames in os.walk(NOTES_ROOT):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for fname in sorted(filenames):
@@ -120,6 +123,55 @@ def get_notes():
     if not _notes_cache:
         _notes_cache, _tag_levels_cache, _tag_parents_cache = scan_notes()
     return _notes_cache, _tag_levels_cache, _tag_parents_cache
+
+
+# --- Source config ---
+
+def load_sources():
+    """Load sources config from SOURCES_FILE. Returns dict with 'sources' and 'active'.
+
+    Sources whose directories no longer exist are silently excluded.
+    If no sources.json exists, a default entry is created only when the
+    default NOTES_ROOT directory is present on disk.
+    """
+    cfg = None
+    if SOURCES_FILE.is_file():
+        try:
+            cfg = json.loads(SOURCES_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    if cfg is None:
+        # No config file – only add default source if the directory exists
+        if NOTES_ROOT.is_dir():
+            cfg = {"sources": [{"name": "Default", "path": str(NOTES_ROOT)}], "active": str(NOTES_ROOT)}
+        else:
+            cfg = {"sources": [], "active": ""}
+    else:
+        # Filter out sources whose directories no longer exist
+        cfg["sources"] = [s for s in cfg.get("sources", []) if Path(s["path"]).resolve().is_dir()]
+        active = cfg.get("active", "")
+        if active and not Path(active).resolve().is_dir():
+            cfg["active"] = cfg["sources"][0]["path"] if cfg["sources"] else ""
+        elif not active and cfg["sources"]:
+            cfg["active"] = cfg["sources"][0]["path"]
+
+    return cfg
+
+
+def save_sources(cfg):
+    """Save sources config to SOURCES_FILE."""
+    SOURCES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SOURCES_FILE.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def switch_notes_root(new_path):
+    """Switch NOTES_ROOT to a new path and invalidate cache."""
+    global NOTES_ROOT, _notes_cache, _tag_levels_cache, _tag_parents_cache
+    NOTES_ROOT = Path(new_path).resolve()
+    _notes_cache = []
+    _tag_levels_cache = {}
+    _tag_parents_cache = {}
 
 
 # --- Routes ---
@@ -166,6 +218,71 @@ def api_rebuild():
     global _notes_cache, _tag_levels_cache, _tag_parents_cache
     _notes_cache, _tag_levels_cache, _tag_parents_cache = scan_notes()
     return jsonify({"notes": _notes_cache, "tagLevels": _tag_levels_cache, "tagParents": _tag_parents_cache})
+
+
+@app.route("/api/sources")
+def api_sources():
+    cfg = load_sources()
+    return jsonify(cfg)
+
+
+@app.route("/api/sources/add", methods=["POST"])
+def api_sources_add():
+    data = request.get_json(force=True)
+    name = data.get("name", "").strip()
+    path = data.get("path", "").strip()
+    if not name or not path:
+        return jsonify({"ok": False, "error": "Name and path are required"}), 400
+    p = Path(path).resolve()
+    if not p.is_dir():
+        return jsonify({"ok": False, "error": "Directory does not exist"}), 400
+    cfg = load_sources()
+    # Prevent duplicates
+    for s in cfg["sources"]:
+        if str(Path(s["path"]).resolve()) == str(p):
+            return jsonify({"ok": False, "error": "Source already exists"}), 409
+    cfg["sources"].append({"name": name, "path": str(p)})
+    # Auto-activate if no active source
+    if not cfg.get("active"):
+        cfg["active"] = str(p)
+    save_sources(cfg)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/sources/select", methods=["POST"])
+def api_sources_select():
+    data = request.get_json(force=True)
+    path = data.get("path", "").strip()
+    if not path:
+        return jsonify({"ok": False, "error": "Path is required"}), 400
+    p = Path(path).resolve()
+    if not p.is_dir():
+        return jsonify({"ok": False, "error": "Directory does not exist"}), 400
+    cfg = load_sources()
+    cfg["active"] = str(p)
+    save_sources(cfg)
+    switch_notes_root(p)
+    notes, tag_levels, tag_parents = scan_notes()
+    global _notes_cache, _tag_levels_cache, _tag_parents_cache
+    _notes_cache = notes
+    _tag_levels_cache = tag_levels
+    _tag_parents_cache = tag_parents
+    return jsonify({"notes": notes, "tagLevels": tag_levels, "tagParents": tag_parents})
+
+
+@app.route("/api/sources/remove", methods=["POST"])
+def api_sources_remove():
+    data = request.get_json(force=True)
+    path = data.get("path", "").strip()
+    if not path:
+        return jsonify({"ok": False, "error": "Path is required"}), 400
+    p = str(Path(path).resolve())
+    cfg = load_sources()
+    cfg["sources"] = [s for s in cfg["sources"] if str(Path(s["path"]).resolve()) != p]
+    if cfg["active"] == p and cfg["sources"]:
+        cfg["active"] = cfg["sources"][0]["path"]
+    save_sources(cfg)
+    return jsonify({"ok": True})
 
 
 @app.route("/files/<path:file_path>")
@@ -262,11 +379,23 @@ def api_rename_note():
 
 # --- Git operations ---
 
+def is_git_repo():
+    """Check if NOTES_ROOT is inside a git repo."""
+    return (NOTES_ROOT / ".git").exists() or subprocess.run(
+        ["git", "rev-parse", "--git-dir"],
+        cwd=str(NOTES_ROOT),
+        capture_output=True, text=True,
+    ).returncode == 0
+
+
 @app.route("/api/git/status")
 def api_git_status():
+    repo = is_git_repo()
+    if not repo:
+        return jsonify({"changes": [], "hasChanges": False, "isRepo": False})
     result = subprocess.run(
-        ["git", "status", "--porcelain", "notes/"],
-        cwd=str(REPO_ROOT),
+        ["git", "status", "--porcelain", "."],
+        cwd=str(NOTES_ROOT),
         capture_output=True, text=True,
     )
     changed = []
@@ -274,42 +403,41 @@ def api_git_status():
         line = line.strip()
         if line:
             changed.append(line)
-    return jsonify({"changes": changed, "hasChanges": len(changed) > 0})
+    return jsonify({"changes": changed, "hasChanges": len(changed) > 0, "isRepo": True})
 
 
 @app.route("/api/git/commit", methods=["POST"])
 def api_git_commit():
-    # Check what changed
+    if not is_git_repo():
+        return jsonify({"ok": False, "error": "Not a git repository"})
+
     status = subprocess.run(
-        ["git", "status", "--porcelain", "notes/"],
-        cwd=str(REPO_ROOT),
+        ["git", "status", "--porcelain", "."],
+        cwd=str(NOTES_ROOT),
         capture_output=True, text=True,
     )
     changed_files = []
     for line in status.stdout.strip().split("\n"):
         line = line.strip()
         if line:
-            # Extract filename (after status codes)
             changed_files.append(line[2:].strip())
 
     if not changed_files:
         return jsonify({"ok": False, "error": "No changes to commit"})
 
-    # Stage notes/
     add_result = subprocess.run(
-        ["git", "add", "notes/"],
-        cwd=str(REPO_ROOT),
+        ["git", "add", "."],
+        cwd=str(NOTES_ROOT),
         capture_output=True, text=True,
     )
     if add_result.returncode != 0:
         return jsonify({"ok": False, "error": add_result.stderr})
 
-    # Build commit message
     msg = "notes updated.\n\n" + "\n".join(f"- {f}" for f in changed_files)
 
     commit_result = subprocess.run(
         ["git", "commit", "-m", msg],
-        cwd=str(REPO_ROOT),
+        cwd=str(NOTES_ROOT),
         capture_output=True, text=True,
     )
     if commit_result.returncode != 0:
@@ -320,9 +448,12 @@ def api_git_commit():
 
 @app.route("/api/git/pull", methods=["POST"])
 def api_git_pull():
+    if not is_git_repo():
+        return jsonify({"ok": False, "error": "Not a git repository"})
+
     result = subprocess.run(
         ["git", "pull"],
-        cwd=str(REPO_ROOT),
+        cwd=str(NOTES_ROOT),
         capture_output=True, text=True,
     )
     has_conflicts = "CONFLICT" in result.stdout or result.returncode != 0
@@ -335,7 +466,15 @@ def api_git_pull():
 
 
 if __name__ == "__main__":
-    _notes_cache, _tag_levels_cache, _tag_parents_cache = scan_notes()
-    print(f"Serving notes from: {NOTES_ROOT}")
-    print(f"Found {len(_notes_cache)} notes")
+    # Load active source from config if available
+    cfg = load_sources()
+    if cfg.get("active"):
+        active = Path(cfg["active"]).resolve()
+        if active.is_dir():
+            switch_notes_root(active)
+            _notes_cache, _tag_levels_cache, _tag_parents_cache = scan_notes()
+            print(f"Serving notes from: {NOTES_ROOT}")
+            print(f"Found {len(_notes_cache)} notes")
+    else:
+        print("No active source. Add a source via the UI.")
     app.run(host="127.0.0.1", port=5000, debug=True)

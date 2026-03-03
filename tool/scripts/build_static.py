@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-NOTES_ROOT = REPO_ROOT / "notes"
+NOTES_ROOT = Path(os.environ.get("NOTES_ROOT", REPO_ROOT / "notes")).resolve()
 DIST = REPO_ROOT / "tool" / "dist"
 VIEWER_STATIC = REPO_ROOT / "tool" / "viewer" / "static"
 SKIP_DIRS = {

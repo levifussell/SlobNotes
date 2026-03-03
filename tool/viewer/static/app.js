@@ -9,6 +9,9 @@ let editVisible = false;
 let renderVisible = false;
 let dirty = false;
 let gitDirty = false;
+let isGitRepo = true;
+let sources = [];
+let activeSource = "";
 
 /* ── Palettes ── */
 const PALETTES = {
@@ -149,13 +152,25 @@ function closeSidebarOnSelect() {
 }
 
 /* ── Init ── */
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   loadSavedPalette();
-  fetchNotes();
+  await fetchSources();
+  if (sources.length === 0) {
+    showNoSourceState();
+  } else {
+    fetchNotes();
+    checkGitStatus();
+  }
   initResize();
   initKeyboard();
   initTitleEditing();
-  checkGitStatus();
+  // Close dropdown on outside click
+  document.addEventListener("click", (e) => {
+    const dd = document.getElementById("source-dropdown");
+    if (dd && !dd.contains(e.target)) {
+      document.getElementById("source-menu").classList.remove("open");
+    }
+  });
 });
 
 /* ── API ── */
@@ -660,8 +675,12 @@ async function checkGitStatus() {
   try {
     const res = await fetch("/api/git/status");
     const data = await res.json();
+    isGitRepo = data.isRepo !== false;
     gitDirty = data.hasChanges;
-    document.getElementById("btn-push").disabled = !gitDirty;
+    document.getElementById("btn-push").disabled = !isGitRepo || !gitDirty;
+    document.getElementById("btn-pull").disabled = !isGitRepo;
+    document.getElementById("btn-push").title = isGitRepo ? "Commit note changes" : "Not a git repo";
+    document.getElementById("btn-pull").title = isGitRepo ? "Pull updates from remote" : "Not a git repo";
   } catch {
     // Silently fail — git status is non-critical
   }
@@ -712,4 +731,192 @@ async function gitPull() {
 
 function closeConflictModal() {
   document.getElementById("conflict-modal").style.display = "none";
+}
+
+/* ── No-Source State ── */
+function showNoSourceState() {
+  // Hide left panel content and show a prompt in the main area
+  document.getElementById("left-panel").style.display = "none";
+  document.getElementById("resize-handle").style.display = "none";
+  document.getElementById("empty-state").innerHTML =
+    '<div>No note sources configured.</div>' +
+    '<button class="btn" style="margin-top:1rem" onclick="addSource()">+ Add source</button>';
+  document.getElementById("empty-state").style.display = "flex";
+}
+
+function hideNoSourceState() {
+  document.getElementById("left-panel").style.display = "";
+  document.getElementById("resize-handle").style.display = "";
+  document.getElementById("empty-state").innerHTML = "Select a note to view";
+  document.getElementById("empty-state").style.display = "flex";
+}
+
+/* ── Source Selector ── */
+async function fetchSources() {
+  try {
+    const res = await fetch("/api/sources");
+    const data = await res.json();
+    sources = data.sources || [];
+    activeSource = data.active || "";
+    updateSourceButton();
+  } catch {
+    // Silently fail
+  }
+}
+
+function updateSourceButton() {
+  const btn = document.getElementById("btn-source");
+  if (!btn) return;
+  const active = sources.find(s => s.path === activeSource);
+  btn.textContent = active ? active.name : "Source";
+}
+
+function toggleSourceDropdown() {
+  const menu = document.getElementById("source-menu");
+  const wasOpen = menu.classList.contains("open");
+  menu.classList.toggle("open");
+  if (!wasOpen) buildSourceMenu();
+}
+
+function buildSourceMenu() {
+  const menu = document.getElementById("source-menu");
+  menu.innerHTML = "";
+
+  sources.forEach(s => {
+    const item = document.createElement("div");
+    item.className = "dropdown-item" + (s.path === activeSource ? " active" : "");
+    item.onclick = (e) => {
+      if (e.target.classList.contains("remove-btn")) return;
+      selectSource(s.path);
+    };
+
+    const nameEl = document.createElement("span");
+    nameEl.className = "source-name";
+    nameEl.textContent = s.name;
+
+    item.appendChild(nameEl);
+
+    // Remove button
+    {
+      const rmBtn = document.createElement("span");
+      rmBtn.className = "remove-btn";
+      rmBtn.textContent = "×";
+      rmBtn.title = "Remove source";
+      rmBtn.onclick = (e) => {
+        e.stopPropagation();
+        removeSource(s.path, s.name);
+      };
+      item.appendChild(rmBtn);
+    }
+
+    menu.appendChild(item);
+  });
+
+  // Add source action
+  const addAction = document.createElement("button");
+  addAction.className = "dropdown-action";
+  addAction.textContent = "+ Add source";
+  addAction.onclick = () => addSource();
+  menu.appendChild(addAction);
+}
+
+async function selectSource(path) {
+  document.getElementById("source-menu").classList.remove("open");
+  if (path === activeSource) return;
+
+  const btn = document.getElementById("btn-source");
+  btn.textContent = "...";
+
+  try {
+    const res = await fetch("/api/sources/select", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    const data = await res.json();
+    if (data.notes !== undefined) {
+      activeSource = path;
+      allNotes = data.notes;
+      tagLevels = data.tagLevels;
+      tagParents = data.tagParents || {};
+      activeTags.clear();
+      selectedNote = null;
+      editVisible = false;
+      renderVisible = false;
+      document.getElementById("editor-pane").classList.remove("visible");
+      document.getElementById("render-pane").classList.remove("visible");
+      document.getElementById("btn-edit").classList.remove("active");
+      document.getElementById("btn-render").classList.remove("active");
+      document.getElementById("empty-state").style.display = "flex";
+      document.getElementById("current-path").textContent = "Select a note";
+      document.getElementById("note-title").style.display = "none";
+      buildTagBar();
+      renderNoteList();
+      checkGitStatus();
+    } else {
+      alert("Switch failed: " + (data.error || "unknown error"));
+    }
+  } catch (e) {
+    alert("Switch failed: " + e.message);
+  }
+
+  updateSourceButton();
+}
+
+async function addSource() {
+  document.getElementById("source-menu").classList.remove("open");
+  const wasEmpty = sources.length === 0;
+  const name = prompt("Source name:");
+  if (!name || !name.trim()) return;
+  const path = prompt("Absolute path to notes directory:");
+  if (!path || !path.trim()) return;
+
+  try {
+    const res = await fetch("/api/sources/add", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim(), path: path.trim() }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await fetchSources();
+      // First source added — bootstrap the UI
+      if (wasEmpty && sources.length > 0) {
+        hideNoSourceState();
+        // Force-select: reset activeSource so selectSource doesn't bail
+        activeSource = "";
+        await selectSource(sources[0].path);
+      }
+    } else {
+      alert("Failed: " + (data.error || "unknown error"));
+    }
+  } catch (e) {
+    alert("Failed: " + e.message);
+  }
+}
+
+async function removeSource(path, name) {
+  if (!confirm(`Remove source "${name}"?`)) return;
+  document.getElementById("source-menu").classList.remove("open");
+
+  try {
+    const res = await fetch("/api/sources/remove", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await fetchSources();
+      if (sources.length === 0) {
+        showNoSourceState();
+      } else if (path === activeSource) {
+        await selectSource(sources[0].path);
+      }
+    } else {
+      alert("Failed: " + (data.error || "unknown error"));
+    }
+  } catch (e) {
+    alert("Failed: " + e.message);
+  }
 }

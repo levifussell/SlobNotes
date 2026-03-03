@@ -15,6 +15,10 @@
       <button class="btn" id="btn-sidebar" onclick="toggleSidebar()">List</button>
       <span class="logo">slob notes</span>
       <button class="btn" id="btn-palette" onclick="cyclePalette()">Default</button>
+      <div id="source-dropdown" class="dropdown">
+        <button class="btn" id="btn-source" onclick="toggleSourceDropdown()">Source</button>
+        <div id="source-menu" class="dropdown-menu"></div>
+      </div>
       <button class="btn" id="btn-rebuild" onclick="rebuild()">Rebuild</button>
       <button class="btn" id="btn-push" onclick="gitCommit()" disabled title="Commit note changes">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
