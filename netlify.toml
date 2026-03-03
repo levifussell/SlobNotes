@@ -1,5 +1,5 @@
 [build]
-  command = "pip install cryptography && python3 tool/scripts/build_static.py"
+  command = "git clone $NOTES_REPO /tmp/notes && pip install cryptography && NOTES_ROOT=/tmp/notes python3 tool/scripts/build_static.py"
   publish = "tool/dist"
 
 [build.environment]

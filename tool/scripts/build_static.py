@@ -138,6 +138,8 @@ def build():
         print("ERROR: Set SITE_PASSWORD environment variable.", file=sys.stderr)
         sys.exit(1)
 
+    site_title = os.environ.get("SITE_TITLE", "slob notes")
+
     print("Scanning notes...")
     notes, tag_levels, tag_parents, contents = scan_notes()
     print(f"  Found {len(notes)} notes")
@@ -169,20 +171,20 @@ def build():
         shutil.copy2(VIEWER_STATIC / name, DIST / name)
 
     # Write static index.html and app.js (generated, not copied)
-    write_static_html()
-    write_static_js()
+    write_static_html(site_title)
+    write_static_js(site_title)
 
     print(f"Build complete -> {DIST}/")
 
 
-def write_static_html():
+def write_static_html(site_title="slob notes"):
     html = f"""\
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>slob notes</title>
+  <title>{site_title}</title>
   <link rel="stylesheet" href="theme.css">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -233,7 +235,7 @@ def write_static_html():
 <body>
   <!-- Password gate -->
   <div id="lock-screen">
-    <div class="lock-title">slob notes</div>
+    <div class="lock-title">{site_title}</div>
     <form id="lock-form" onsubmit="return handleUnlock(event)" style="display:flex;flex-direction:column;align-items:center;gap:var(--gap)">
       <input type="password" id="lock-input" placeholder="password" autofocus>
       <button type="submit" class="btn" style="width:260px">Enter</button>
@@ -244,7 +246,7 @@ def write_static_html():
   <div id="app" class="locked">
     <div id="toolbar">
       <button class="btn" id="btn-sidebar" onclick="toggleSidebar()">List</button>
-      <span class="logo">slob notes</span>
+      <span class="logo">{site_title}</span>
       <button class="btn" id="btn-palette" onclick="cyclePalette()">Default</button>
     </div>
     <div id="panels">
@@ -278,7 +280,7 @@ def write_static_html():
     (DIST / "index.html").write_text(html, encoding="utf-8")
 
 
-def write_static_js():
+def write_static_js(site_title="slob notes"):
     js = r"""/* ── slob notes static (read-only, encrypted) ── */
 
 /* ── State ── */

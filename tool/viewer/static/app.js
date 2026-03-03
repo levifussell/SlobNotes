@@ -679,7 +679,7 @@ async function checkGitStatus() {
     gitDirty = data.hasChanges;
     document.getElementById("btn-push").disabled = !isGitRepo || !gitDirty;
     document.getElementById("btn-pull").disabled = !isGitRepo;
-    document.getElementById("btn-push").title = isGitRepo ? "Commit note changes" : "Not a git repo";
+    document.getElementById("btn-push").title = isGitRepo ? "Commit & push notes" : "Not a git repo";
     document.getElementById("btn-pull").title = isGitRepo ? "Pull updates from remote" : "Not a git repo";
   } catch {
     // Silently fail — git status is non-critical
@@ -695,6 +695,9 @@ async function gitCommit() {
     if (data.ok) {
       btn.classList.add("success");
       setTimeout(() => { btn.classList.remove("success"); }, 2000);
+      if (data.pushError) {
+        alert("Committed but push failed: " + data.pushError);
+      }
     } else {
       alert("Commit failed: " + (data.error || "unknown error"));
     }

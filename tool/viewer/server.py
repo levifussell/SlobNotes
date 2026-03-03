@@ -443,6 +443,15 @@ def api_git_commit():
     if commit_result.returncode != 0:
         return jsonify({"ok": False, "error": commit_result.stderr})
 
+    push_result = subprocess.run(
+        ["git", "push"],
+        cwd=str(NOTES_ROOT),
+        capture_output=True, text=True,
+    )
+    if push_result.returncode != 0:
+        return jsonify({"ok": True, "message": msg, "files": changed_files,
+                        "pushError": push_result.stderr})
+
     return jsonify({"ok": True, "message": msg, "files": changed_files})
 
 
