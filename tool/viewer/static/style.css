@@ -266,17 +266,20 @@ html, body {
   font-size: var(--font-size-sm);
   font-weight: 700;
   padding: 3px 10px;
-  border: var(--border-w) solid var(--text);
+  border: var(--border-w) solid var(--text-muted);
   background: transparent;
-  color: var(--text);
+  color: var(--text-muted);
   cursor: pointer;
   transition: all 0.1s;
   line-height: 1;
   margin: var(--gap) 0 0 var(--gap-lg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .btn-add-note:hover {
-  background: var(--text);
+  background: var(--text-muted);
   color: var(--bg);
 }
 
