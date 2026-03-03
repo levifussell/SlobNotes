@@ -262,25 +262,22 @@ html, body {
 }
 
 .btn-add-note {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--gap) var(--gap-lg);
-  cursor: pointer;
-  border-left: 3px solid transparent;
-  border-bottom: var(--border-w) solid var(--border);
   font-family: var(--font-mono);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-sm);
   font-weight: 700;
-  color: var(--text-muted);
+  padding: 3px 10px;
+  border: var(--border-w) solid var(--text);
   background: transparent;
-  width: 100%;
-  transition: background 0.1s, color 0.1s;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.1s;
+  line-height: 1;
+  margin: var(--gap) 0 0 var(--gap-lg);
 }
 
 .btn-add-note:hover {
-  background: var(--surface);
-  color: var(--text);
+  background: var(--text);
+  color: var(--bg);
 }
 
 /* ── Note title input ── */
