@@ -154,6 +154,7 @@ document.addEventListener("DOMContentLoaded", () => {
   fetchNotes();
   initResize();
   initKeyboard();
+  initTitleEditing();
   checkGitStatus();
 });
 
@@ -190,6 +191,11 @@ async function loadNote(path) {
   document.getElementById("current-path").textContent = path;
   document.getElementById("empty-state").style.display = "none";
 
+  // Update title input with derived title
+  const titleInput = document.getElementById("note-title");
+  titleInput.value = pathToTitle(path);
+  titleInput.dataset.originalTitle = titleInput.value;
+
   // Update editor
   document.getElementById("editor").value = data.content;
 
@@ -200,6 +206,8 @@ async function loadNote(path) {
   if (!editVisible && !renderVisible) {
     toggleRender();
   }
+
+  updateTitleEditing();
 
   // Update list selection
   document.querySelectorAll(".note-item").forEach(el => {
@@ -230,6 +238,7 @@ async function saveNote() {
       selectedNote.content = content;
       renderMarkdown(content);
       setTimeout(() => { status.textContent = ""; }, 2000);
+      await rebuild();
       checkGitStatus();
     } else {
       status.textContent = "Error: " + (data.error || "unknown");
@@ -254,6 +263,8 @@ function setFilterMode(mode) {
 function buildTagBar() {
   const tagSet = new Set();
   allNotes.forEach(n => n.tags.forEach(t => tagSet.add(t)));
+  // Include tags from tagLevels (e.g. empty dirs) so they're always visible
+  Object.keys(tagLevels).forEach(t => tagSet.add(t));
 
   // Sort: top first, then mid, then low; alphabetical within each tier
   const levelOrder = { top: 0, mid: 1, low: 2 };
@@ -266,6 +277,17 @@ function buildTagBar() {
 
   const bar = document.getElementById("tag-bar");
   bar.innerHTML = "";
+
+  // Desktop-only "+" button to create a new category
+  if (window.innerWidth > 768) {
+    const addBtn = document.createElement("button");
+    addBtn.className = "btn-add";
+    addBtn.textContent = "+";
+    addBtn.title = "New category";
+    addBtn.onclick = () => createDir();
+    bar.appendChild(addBtn);
+  }
+
   tags.forEach(tag => {
     const level = tagLevels[tag] || "low";
 
@@ -320,10 +342,29 @@ function getFilteredNotes() {
   }
 }
 
+function canAddNote() {
+  if (window.innerWidth <= 768) return false;
+  if (filterMode !== "only") return false;
+  if (activeTags.size !== 1) return false;
+  const tag = Array.from(activeTags)[0];
+  const level = tagLevels[tag] || "low";
+  return level === "top" || level === "mid";
+}
+
 function renderNoteList() {
   const list = document.getElementById("note-list");
   const notes = getFilteredNotes();
   list.innerHTML = "";
+
+  // Desktop-only "+" button to create a new note
+  if (canAddNote()) {
+    const addBtn = document.createElement("button");
+    addBtn.className = "btn-add-note";
+    addBtn.textContent = "+";
+    addBtn.title = "New note";
+    addBtn.onclick = () => createNote();
+    list.appendChild(addBtn);
+  }
 
   notes.forEach(n => {
     const item = document.createElement("div");
@@ -358,6 +399,7 @@ function toggleEdit() {
   document.getElementById("editor-pane").classList.toggle("visible", editVisible);
   updateRightContentClass();
   hideEmptyState();
+  updateTitleEditing();
 }
 
 function toggleRender() {
@@ -485,6 +527,132 @@ function initKeyboard() {
     document.getElementById("save-status").textContent = "Unsaved changes";
     document.getElementById("save-status").style.color = "var(--warn)";
   });
+}
+
+/* ── Title Editing ── */
+function pathToTitle(path) {
+  const filename = path.split("/").pop();
+  let name = filename.replace(/\.md$/, "");
+  name = name.replace(/^\[.*?\]/, "");
+  return name.replace(/_/g, " ").trim();
+}
+
+function updateTitleEditing() {
+  const pathEl = document.getElementById("current-path");
+  const titleEl = document.getElementById("note-title");
+  if (editVisible && selectedNote) {
+    pathEl.style.display = "none";
+    titleEl.style.display = "block";
+  } else {
+    pathEl.style.display = "";
+    titleEl.style.display = "none";
+  }
+}
+
+function initTitleEditing() {
+  const titleEl = document.getElementById("note-title");
+  titleEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      titleEl.blur();
+    }
+    if (e.key === "Escape") {
+      titleEl.value = titleEl.dataset.originalTitle || "";
+      titleEl.blur();
+    }
+  });
+  titleEl.addEventListener("blur", () => {
+    const newTitle = titleEl.value.trim();
+    const oldTitle = titleEl.dataset.originalTitle || "";
+    if (newTitle && newTitle !== oldTitle) {
+      renameNote(newTitle);
+    }
+  });
+}
+
+async function renameNote(newTitle) {
+  if (!selectedNote) return;
+  try {
+    const res = await fetch("/api/note/rename", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ oldPath: selectedNote.path, newTitle }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      selectedNote.path = data.newPath;
+      document.getElementById("current-path").textContent = data.newPath;
+      document.getElementById("note-title").dataset.originalTitle = newTitle;
+      // Refresh note list to show new title
+      await rebuild();
+    } else {
+      alert("Rename failed: " + (data.error || "unknown error"));
+      document.getElementById("note-title").value =
+        document.getElementById("note-title").dataset.originalTitle || "";
+    }
+  } catch (e) {
+    alert("Rename failed: " + e.message);
+    document.getElementById("note-title").value =
+      document.getElementById("note-title").dataset.originalTitle || "";
+  }
+}
+
+/* ── Note & Directory Creation ── */
+async function createDir() {
+  const name = prompt("New category name:");
+  if (!name || !name.trim()) return;
+  try {
+    const res = await fetch("/api/dir/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await rebuild();
+    } else {
+      alert("Failed: " + (data.error || "unknown error"));
+    }
+  } catch (e) {
+    alert("Failed: " + e.message);
+  }
+}
+
+async function createNote() {
+  if (!canAddNote()) return;
+  const tag = Array.from(activeTags)[0];
+  const level = tagLevels[tag] || "low";
+
+  // Determine target directory
+  let dir;
+  if (level === "mid") {
+    const parent = tagParents[tag];
+    dir = parent + "/" + tag.replace(/ /g, "_");
+  } else {
+    dir = tag;
+  }
+
+  try {
+    const res = await fetch("/api/note/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dir }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      await rebuild();
+      await loadNote(data.path);
+      // Open edit mode and focus title
+      if (!editVisible) toggleEdit();
+      setTimeout(() => {
+        document.getElementById("note-title").select();
+      }, 100);
+    } else {
+      alert("Failed: " + (data.error || "unknown error"));
+    }
+  } catch (e) {
+    alert("Failed: " + e.message);
+  }
 }
 
 /* ── Git Operations ── */

@@ -242,6 +242,66 @@ html, body {
   color: #fff;
 }
 
+/* ── Add buttons ── */
+.btn-add {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  padding: 3px 10px;
+  border: var(--border-w) solid var(--text);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.1s;
+  line-height: 1;
+}
+
+.btn-add:hover {
+  background: var(--text);
+  color: var(--bg);
+}
+
+.btn-add-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--gap) var(--gap-lg);
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  border-bottom: var(--border-w) solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text-muted);
+  background: transparent;
+  width: 100%;
+  transition: background 0.1s, color 0.1s;
+}
+
+.btn-add-note:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* ── Note title input ── */
+#note-title {
+  font-family: var(--font-body);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface);
+  border: var(--border-w) solid var(--border);
+  padding: 2px 8px;
+  margin-right: auto;
+  outline: none;
+  min-width: 0;
+  flex: 1;
+}
+
+#note-title:focus {
+  border-color: var(--accent);
+}
+
 /* ── Note List ── */
 #note-list {
   flex: 1;
@@ -596,5 +656,10 @@ html, body {
 
   #left-panel.mobile-open {
     display: flex;
+  }
+
+  .btn-add,
+  .btn-add-note {
+    display: none !important;
   }
 }

@@ -5,6 +5,7 @@ import os
 import json
 import re
 import subprocess
+from datetime import date
 from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory, abort
 
@@ -98,6 +99,12 @@ def scan_notes():
                 "tags": tags,
                 "modified": stat.st_mtime,
             })
+    # Include empty top-level dirs as tags so new categories show up immediately
+    for entry in sorted(NOTES_ROOT.iterdir()):
+        if entry.is_dir() and entry.name not in SKIP_DIRS:
+            if entry.name not in global_tag_levels:
+                global_tag_levels[entry.name] = "top"
+
     notes.sort(key=lambda n: n["modified"], reverse=True)
     return notes, global_tag_levels, global_tag_parents
 
@@ -168,6 +175,89 @@ def serve_file(file_path):
     if not fp.is_file() or not str(fp.resolve()).startswith(str(NOTES_ROOT)):
         abort(404)
     return send_from_directory(fp.parent, fp.name)
+
+
+# --- Note & directory creation ---
+
+@app.route("/api/dir/create", methods=["POST"])
+def api_create_dir():
+    data = request.get_json(force=True)
+    name = data.get("name", "").strip()
+    if not name or "/" in name or "\\" in name:
+        return jsonify({"ok": False, "error": "Invalid directory name"}), 400
+    dirpath = NOTES_ROOT / name
+    if dirpath.exists():
+        return jsonify({"ok": False, "error": "Directory already exists"}), 409
+    try:
+        dirpath.mkdir()
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    return jsonify({"ok": True})
+
+
+@app.route("/api/note/create", methods=["POST"])
+def api_create_note():
+    data = request.get_json(force=True)
+    target_dir = data.get("dir", "").strip()
+    if not target_dir:
+        return jsonify({"ok": False, "error": "No directory specified"}), 400
+    dirpath = NOTES_ROOT / target_dir
+    if not dirpath.is_dir() or not str(dirpath.resolve()).startswith(str(NOTES_ROOT)):
+        return jsonify({"ok": False, "error": "Invalid directory"}), 400
+
+    # Generate date-based filename
+    today = date.today()
+    base = today.strftime("%Y_%m_%d")
+    filename = base + ".md"
+    counter = 2
+    while (dirpath / filename).exists():
+        filename = f"{base}_{counter}.md"
+        counter += 1
+
+    # Write default template
+    content = f"tags: \ndate: {today.isoformat()}\n---\n"
+    fp = dirpath / filename
+    try:
+        fp.write_text(content, encoding="utf-8")
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    rel = str(fp.relative_to(NOTES_ROOT))
+    return jsonify({"ok": True, "path": rel})
+
+
+@app.route("/api/note/rename", methods=["POST"])
+def api_rename_note():
+    data = request.get_json(force=True)
+    old_path = data.get("oldPath", "")
+    new_title = data.get("newTitle", "").strip()
+    if not old_path or not new_title:
+        return jsonify({"ok": False, "error": "Missing oldPath or newTitle"}), 400
+
+    old_fp = NOTES_ROOT / old_path
+    if not old_fp.is_file() or not str(old_fp.resolve()).startswith(str(NOTES_ROOT)):
+        return jsonify({"ok": False, "error": "File not found"}), 404
+
+    # Preserve any status prefix like [p] or [d]
+    old_stem = old_fp.stem
+    prefix_match = re.match(r"^(\[.*?\])", old_stem)
+    prefix = prefix_match.group(1) if prefix_match else ""
+
+    new_stem = prefix + new_title.replace(" ", "_")
+    new_fp = old_fp.parent / (new_stem + ".md")
+
+    if new_fp == old_fp:
+        return jsonify({"ok": True, "newPath": old_path})
+    if new_fp.exists():
+        return jsonify({"ok": False, "error": "A note with that name already exists"}), 409
+
+    try:
+        old_fp.rename(new_fp)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    new_path = str(new_fp.relative_to(NOTES_ROOT))
+    return jsonify({"ok": True, "newPath": new_path})
 
 
 # --- Git operations ---
