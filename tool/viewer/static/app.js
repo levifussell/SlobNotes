@@ -8,6 +8,7 @@ let selectedNote = null;
 let editVisible = false;
 let renderVisible = false;
 let dirty = false;
+let gitDirty = false;
 
 /* ── Palettes ── */
 const PALETTES = {
@@ -153,6 +154,7 @@ document.addEventListener("DOMContentLoaded", () => {
   fetchNotes();
   initResize();
   initKeyboard();
+  checkGitStatus();
 });
 
 /* ── API ── */
@@ -228,6 +230,7 @@ async function saveNote() {
       selectedNote.content = content;
       renderMarkdown(content);
       setTimeout(() => { status.textContent = ""; }, 2000);
+      checkGitStatus();
     } else {
       status.textContent = "Error: " + (data.error || "unknown");
       status.style.color = "var(--accent)";
@@ -482,4 +485,63 @@ function initKeyboard() {
     document.getElementById("save-status").textContent = "Unsaved changes";
     document.getElementById("save-status").style.color = "var(--warn)";
   });
+}
+
+/* ── Git Operations ── */
+async function checkGitStatus() {
+  try {
+    const res = await fetch("/api/git/status");
+    const data = await res.json();
+    gitDirty = data.hasChanges;
+    document.getElementById("btn-push").disabled = !gitDirty;
+  } catch {
+    // Silently fail — git status is non-critical
+  }
+}
+
+async function gitCommit() {
+  const btn = document.getElementById("btn-push");
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/git/commit", { method: "POST" });
+    const data = await res.json();
+    if (data.ok) {
+      btn.classList.add("success");
+      setTimeout(() => { btn.classList.remove("success"); }, 2000);
+    } else {
+      alert("Commit failed: " + (data.error || "unknown error"));
+    }
+  } catch (e) {
+    alert("Commit failed: " + e.message);
+  }
+  checkGitStatus();
+}
+
+async function gitPull() {
+  const btn = document.getElementById("btn-pull");
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/git/pull", { method: "POST" });
+    const data = await res.json();
+    if (data.ok) {
+      btn.classList.add("success");
+      setTimeout(() => { btn.classList.remove("success"); }, 2000);
+      // Refresh notes after pull
+      await rebuild();
+    } else if (data.hasConflicts) {
+      document.getElementById("conflict-details").textContent =
+        (data.output || "") + "\n" + (data.error || "");
+      document.getElementById("conflict-modal").style.display = "flex";
+    } else {
+      alert("Pull failed: " + (data.error || "unknown error"));
+    }
+  } catch (e) {
+    alert("Pull failed: " + e.message);
+  }
+  btn.disabled = false;
+  checkGitStatus();
+}
+
+function closeConflictModal() {
+  document.getElementById("conflict-modal").style.display = "none";
 }

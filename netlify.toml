@@ -1,6 +1,6 @@
 [build]
-  command = "pip install cryptography && python3 scripts/build_static.py"
-  publish = "dist"
+  command = "pip install cryptography && python3 tool/scripts/build_static.py"
+  publish = "tool/dist"
 
 [build.environment]
   PYTHON_VERSION = "3.12"

@@ -18,24 +18,22 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 
-ROOT = Path(__file__).resolve().parent.parent
-DIST = ROOT / "dist"
-VIEWER_STATIC = ROOT / "viewer" / "static"
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+NOTES_ROOT = REPO_ROOT / "notes"
+DIST = REPO_ROOT / "tool" / "dist"
+VIEWER_STATIC = REPO_ROOT / "tool" / "viewer" / "static"
 SKIP_DIRS = {
     ".git",
     ".venv",
-    "viewer",
-    "scripts",
     "__pycache__",
     "node_modules",
-    "dist",
 }
 
 PBKDF2_ITERATIONS = 600_000
 
 
 def extract_tags_and_title(filepath: Path):
-    rel = filepath.relative_to(ROOT)
+    rel = filepath.relative_to(NOTES_ROOT)
     parts = rel.parts
 
     top_tags = [parts[0]] if len(parts) > 1 else []
@@ -85,13 +83,13 @@ def scan_notes():
     global_tag_levels = {}
     global_tag_parents = {}
 
-    for dirpath, dirnames, filenames in os.walk(ROOT):
+    for dirpath, dirnames, filenames in os.walk(NOTES_ROOT):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for fname in sorted(filenames):
             if not fname.endswith(".md"):
                 continue
             fp = Path(dirpath) / fname
-            rel = str(fp.relative_to(ROOT))
+            rel = str(fp.relative_to(NOTES_ROOT))
             title, tags, tag_levels, tag_parents = extract_tags_and_title(fp)
             global_tag_levels.update(tag_levels)
             global_tag_parents.update(tag_parents)

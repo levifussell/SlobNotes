@@ -70,6 +70,68 @@ html, body {
   color: #000;
 }
 
+.btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.btn:disabled:hover {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.btn svg {
+  display: block;
+}
+
+/* ── Modal ── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-box {
+  background: var(--bg-alt);
+  border: var(--border-w) solid var(--border);
+  padding: var(--gap-lg) calc(var(--gap-lg) * 2);
+  max-width: 540px;
+  width: 90%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+.modal-box h3 {
+  font-family: var(--font-body);
+  font-size: var(--font-size-lg);
+  color: var(--accent);
+  margin: 0;
+}
+
+.modal-box p {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.modal-box pre {
+  background: var(--bg);
+  border: var(--border-w) solid var(--border);
+  padding: var(--gap);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text);
+  overflow-x: auto;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
 /* ── Main Panels ── */
 #panels {
   display: flex;

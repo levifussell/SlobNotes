@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 source .venv/bin/activate
-python3 viewer/server.py
+python3 tool/viewer/server.py

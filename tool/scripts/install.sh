@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 VENV_DIR=".venv"
 
@@ -10,5 +10,5 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 
 source "$VENV_DIR/bin/activate"
-pip install -r viewer/requirements.txt
+pip install -r tool/viewer/requirements.txt
 echo "Done. Venv at: $VENV_DIR"

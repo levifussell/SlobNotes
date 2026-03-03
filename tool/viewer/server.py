@@ -4,11 +4,13 @@
 import os
 import json
 import re
+import subprocess
 from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory, abort
 
-ROOT = Path(__file__).resolve().parent.parent
-SKIP_DIRS = {".git", ".venv", "viewer", "scripts", "__pycache__", "node_modules"}
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+NOTES_ROOT = REPO_ROOT / "notes"
+SKIP_DIRS = {".git", ".venv", "__pycache__", "node_modules"}
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 
@@ -19,7 +21,7 @@ def extract_tags_and_title(filepath: Path):
     Returns (title, tags_list, tag_levels_dict) where tag_levels_dict maps
     each tag to its level: "top", "mid", or "low".
     """
-    rel = filepath.relative_to(ROOT)
+    rel = filepath.relative_to(NOTES_ROOT)
     parts = rel.parts
 
     # Top-level tag: first directory
@@ -72,20 +74,20 @@ def extract_tags_and_title(filepath: Path):
 
 
 def scan_notes():
-    """Walk ROOT and collect all .md files with metadata.
+    """Walk NOTES_ROOT and collect all .md files with metadata.
 
     Returns (notes_list, tag_levels_dict, tag_parents_dict).
     """
     notes = []
     global_tag_levels = {}
     global_tag_parents = {}
-    for dirpath, dirnames, filenames in os.walk(ROOT):
+    for dirpath, dirnames, filenames in os.walk(NOTES_ROOT):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for fname in sorted(filenames):
             if not fname.endswith(".md"):
                 continue
             fp = Path(dirpath) / fname
-            rel = str(fp.relative_to(ROOT))
+            rel = str(fp.relative_to(NOTES_ROOT))
             title, tags, tag_levels, tag_parents = extract_tags_and_title(fp)
             global_tag_levels.update(tag_levels)
             global_tag_parents.update(tag_parents)
@@ -128,8 +130,8 @@ def api_notes():
 
 @app.route("/api/note/<path:note_path>")
 def api_note(note_path):
-    fp = ROOT / note_path
-    if not fp.is_file() or not str(fp.resolve()).startswith(str(ROOT)):
+    fp = NOTES_ROOT / note_path
+    if not fp.is_file() or not str(fp.resolve()).startswith(str(NOTES_ROOT)):
         abort(404)
     try:
         content = fp.read_text(encoding="utf-8")
@@ -140,8 +142,8 @@ def api_note(note_path):
 
 @app.route("/api/note/<path:note_path>", methods=["PUT"])
 def api_save_note(note_path):
-    fp = ROOT / note_path
-    if not str(fp.resolve()).startswith(str(ROOT)):
+    fp = NOTES_ROOT / note_path
+    if not str(fp.resolve()).startswith(str(NOTES_ROOT)):
         abort(403)
     data = request.get_json(force=True)
     content = data.get("content", "")
@@ -161,15 +163,89 @@ def api_rebuild():
 
 @app.route("/files/<path:file_path>")
 def serve_file(file_path):
-    """Serve files from the org root (for images etc.)."""
-    fp = ROOT / file_path
-    if not fp.is_file() or not str(fp.resolve()).startswith(str(ROOT)):
+    """Serve files from the notes root (for images etc.)."""
+    fp = NOTES_ROOT / file_path
+    if not fp.is_file() or not str(fp.resolve()).startswith(str(NOTES_ROOT)):
         abort(404)
     return send_from_directory(fp.parent, fp.name)
 
 
+# --- Git operations ---
+
+@app.route("/api/git/status")
+def api_git_status():
+    result = subprocess.run(
+        ["git", "status", "--porcelain", "notes/"],
+        cwd=str(REPO_ROOT),
+        capture_output=True, text=True,
+    )
+    changed = []
+    for line in result.stdout.strip().split("\n"):
+        line = line.strip()
+        if line:
+            changed.append(line)
+    return jsonify({"changes": changed, "hasChanges": len(changed) > 0})
+
+
+@app.route("/api/git/commit", methods=["POST"])
+def api_git_commit():
+    # Check what changed
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "notes/"],
+        cwd=str(REPO_ROOT),
+        capture_output=True, text=True,
+    )
+    changed_files = []
+    for line in status.stdout.strip().split("\n"):
+        line = line.strip()
+        if line:
+            # Extract filename (after status codes)
+            changed_files.append(line[2:].strip())
+
+    if not changed_files:
+        return jsonify({"ok": False, "error": "No changes to commit"})
+
+    # Stage notes/
+    add_result = subprocess.run(
+        ["git", "add", "notes/"],
+        cwd=str(REPO_ROOT),
+        capture_output=True, text=True,
+    )
+    if add_result.returncode != 0:
+        return jsonify({"ok": False, "error": add_result.stderr})
+
+    # Build commit message
+    msg = "notes updated.\n\n" + "\n".join(f"- {f}" for f in changed_files)
+
+    commit_result = subprocess.run(
+        ["git", "commit", "-m", msg],
+        cwd=str(REPO_ROOT),
+        capture_output=True, text=True,
+    )
+    if commit_result.returncode != 0:
+        return jsonify({"ok": False, "error": commit_result.stderr})
+
+    return jsonify({"ok": True, "message": msg, "files": changed_files})
+
+
+@app.route("/api/git/pull", methods=["POST"])
+def api_git_pull():
+    result = subprocess.run(
+        ["git", "pull"],
+        cwd=str(REPO_ROOT),
+        capture_output=True, text=True,
+    )
+    has_conflicts = "CONFLICT" in result.stdout or result.returncode != 0
+    return jsonify({
+        "ok": not has_conflicts,
+        "output": result.stdout,
+        "error": result.stderr if has_conflicts else "",
+        "hasConflicts": has_conflicts,
+    })
+
+
 if __name__ == "__main__":
     _notes_cache, _tag_levels_cache, _tag_parents_cache = scan_notes()
-    print(f"Serving notes from: {ROOT}")
+    print(f"Serving notes from: {NOTES_ROOT}")
     print(f"Found {len(_notes_cache)} notes")
     app.run(host="127.0.0.1", port=5000, debug=True)
