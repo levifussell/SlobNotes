@@ -33,6 +33,8 @@ const PALETTES = {
     "--tag-active":    "#FF004D",
     "--success":       "#00E436",
     "--warn":          "#FFA300",
+    "--accent-text":   "#000000",
+    "--success-text":  "#000000",
   },
   "Mononoke": {
     "--bg":            "#1A2418",
@@ -52,6 +54,8 @@ const PALETTES = {
     "--tag-active":    "#C23B22",
     "--success":       "#6BAF7A",
     "--warn":          "#D4A843",
+    "--accent-text":   "#FFFFFF",
+    "--success-text":  "#000000",
   },
   "County Highway": {
     "--bg":            "#2C2C2E",
@@ -71,6 +75,8 @@ const PALETTES = {
     "--tag-active":    "#FFB814",
     "--success":       "#2D9B4E",
     "--warn":          "#FFB814",
+    "--accent-text":   "#000000",
+    "--success-text":  "#FFFFFF",
   },
   "Deepsea Jellyfish": {
     "--bg":            "#0A0E1A",
@@ -90,6 +96,8 @@ const PALETTES = {
     "--tag-active":    "#E040A0",
     "--success":       "#20D0D0",
     "--warn":          "#E0A020",
+    "--accent-text":   "#000000",
+    "--success-text":  "#000000",
   },
   "Daylight": {
     "--bg":            "#F4F1EC",
@@ -109,6 +117,8 @@ const PALETTES = {
     "--tag-active":    "#1A1A1A",
     "--success":       "#3A7A3A",
     "--warn":          "#8A6A20",
+    "--accent-text":   "#FFFFFF",
+    "--success-text":  "#FFFFFF",
   },
 };
 
@@ -216,6 +226,9 @@ async function loadNote(path) {
 
   // Update rendered view
   renderMarkdown(data.content);
+
+  // Load comments
+  fetchComments(path);
 
   // Show render by default if nothing is visible
   if (!editVisible && !renderVisible) {
@@ -403,6 +416,12 @@ function renderNoteList() {
 
     item.appendChild(title);
     item.appendChild(meta);
+    if (n.commentCount > 0) {
+      const badge = document.createElement("span");
+      badge.className = "comment-badge";
+      badge.textContent = n.commentCount;
+      item.appendChild(badge);
+    }
     list.appendChild(item);
   });
 }
@@ -492,6 +511,105 @@ function renderMarkdown(md) {
 
   const html = marked.parse(processed, { renderer });
   document.getElementById("rendered").innerHTML = html;
+}
+
+/* ── Comments ── */
+async function fetchComments(notePath) {
+  const section = document.getElementById("comments-section");
+  try {
+    const res = await fetch(`/api/comments/${encodeURIComponent(notePath)}`);
+    const data = await res.json();
+    renderComments(data.comments || []);
+    section.style.display = "block";
+  } catch {
+    section.style.display = "none";
+  }
+}
+
+function renderComments(comments) {
+  const list = document.getElementById("comments-list");
+  const count = document.getElementById("comments-count");
+  list.innerHTML = "";
+  const active = comments.filter(c => !c.resolved).length;
+  count.textContent = comments.length ? `(${active} active, ${comments.length} total)` : "";
+
+  comments.forEach(c => {
+    const item = document.createElement("div");
+    item.className = "comment-item" + (c.resolved ? " resolved" : "");
+
+    const text = document.createElement("div");
+    text.className = "comment-text";
+    text.textContent = c.text;
+
+    const meta = document.createElement("div");
+    meta.className = "comment-meta";
+
+    const time = document.createElement("span");
+    time.textContent = timeAgo(c.created);
+
+    const resolveBtn = document.createElement("button");
+    resolveBtn.textContent = c.resolved ? "unresolve" : "resolve";
+    resolveBtn.onclick = () => toggleResolve(c.id, c.resolved);
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.textContent = "delete";
+    deleteBtn.onclick = () => deleteComment(c.id);
+
+    meta.appendChild(time);
+    meta.appendChild(resolveBtn);
+    meta.appendChild(deleteBtn);
+    item.appendChild(text);
+    item.appendChild(meta);
+    list.appendChild(item);
+  });
+}
+
+function timeAgo(isoStr) {
+  const diff = (Date.now() - new Date(isoStr).getTime()) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return Math.floor(diff / 60) + "m ago";
+  if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
+  return Math.floor(diff / 86400) + "d ago";
+}
+
+async function addComment() {
+  if (!selectedNote) return;
+  const input = document.getElementById("comment-input");
+  const text = input.value.trim();
+  if (!text) return;
+  const res = await fetch(`/api/comments/${encodeURIComponent(selectedNote.path)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  const data = await res.json();
+  if (!data.ok) {
+    alert("Failed to add comment: " + (data.error || "unknown error"));
+    return;
+  }
+  input.value = "";
+  fetchComments(selectedNote.path);
+  rebuild();
+}
+
+async function toggleResolve(commentId, currentResolved) {
+  if (!selectedNote) return;
+  await fetch(`/api/comments/${encodeURIComponent(selectedNote.path)}/${commentId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ resolved: !currentResolved }),
+  });
+  fetchComments(selectedNote.path);
+  rebuild();
+}
+
+async function deleteComment(commentId) {
+  if (!selectedNote || !confirm("Delete this comment?")) return;
+  await fetch(`/api/comments/${encodeURIComponent(selectedNote.path)}/${commentId}`, {
+    method: "DELETE",
+  });
+  fetchComments(selectedNote.path);
+  rebuild();
 }
 
 /* ── Resize Handle ── */
@@ -853,6 +971,7 @@ async function selectSource(path) {
       document.getElementById("empty-state").style.display = "flex";
       document.getElementById("current-path").textContent = "Select a note";
       document.getElementById("note-title").style.display = "none";
+      document.getElementById("comments-section").style.display = "none";
       buildTagBar();
       renderNoteList();
       checkGitStatus();

@@ -80,6 +80,17 @@
           </div>
           <div id="render-pane">
             <div id="rendered"></div>
+            <div id="comments-section" style="display:none">
+              <div id="comments-header">
+                <span>Notes on Notes</span>
+                <span id="comments-count"></span>
+              </div>
+              <div id="comments-list"></div>
+              <div id="comments-add">
+                <textarea id="comment-input" placeholder="Add a note on this note..." rows="2"></textarea>
+                <button class="btn" onclick="addComment()">Add</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -26,6 +26,8 @@
   --tag-active:    #FF004D;   /* active filter tag                */
   --success:       #00E436;   /* green               */
   --warn:          #FFA300;   /* orange              */
+  --accent-text:   #000000;   /* text on accent bg   */
+  --success-text:  #000000;   /* text on success bg  */
 
   /* ── Font Palette ── */
   --font-mono:     "Space Mono", "IBM Plex Mono", "Courier New", monospace;
