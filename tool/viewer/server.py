@@ -199,6 +199,36 @@ def api_notes():
     return jsonify({"notes": notes, "tagLevels": tag_levels, "tagParents": tag_parents})
 
 
+@app.route("/api/search")
+def api_search():
+    q = request.args.get("q", "").strip().lower()
+    if not q:
+        return jsonify({"paths": []})
+    notes, _, _ = get_notes()
+    matched = set()
+    for n in notes:
+        # Match title
+        if q in n["title"].lower():
+            matched.add(n["path"])
+            continue
+        # Match file content
+        fp = NOTES_ROOT / n["path"]
+        try:
+            content = fp.read_text(encoding="utf-8").lower()
+            if q in content:
+                matched.add(n["path"])
+                continue
+        except Exception:
+            pass
+        # Match comments
+        comments = load_comments(n["path"])
+        for c in comments:
+            if q in c.get("text", "").lower():
+                matched.add(n["path"])
+                break
+    return jsonify({"paths": list(matched)})
+
+
 @app.route("/api/note/<path:note_path>")
 def api_note(note_path):
     fp = NOTES_ROOT / note_path
@@ -208,6 +238,7 @@ def api_note(note_path):
         content = fp.read_text(encoding="utf-8")
     except Exception:
         abort(500)
+    increment_view(note_path)
     return jsonify({"path": note_path, "content": content})
 
 
@@ -483,6 +514,122 @@ def api_delete_comment(note_path, comment_id):
     comments = [c for c in comments if c["id"] != comment_id]
     save_comments(note_path, comments)
     return jsonify({"ok": True})
+
+
+# --- View tracking ---
+
+CROSSREF_RE = re.compile(r'\[\[([^\]]+)\]\]')
+
+
+def load_views():
+    vp = NOTES_ROOT / ".views.json"
+    if not vp.is_file():
+        return {}
+    try:
+        return json.loads(vp.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_views(views):
+    vp = NOTES_ROOT / ".views.json"
+    vp.write_text(json.dumps(views, indent=2), encoding="utf-8")
+
+
+def increment_view(note_path):
+    views = load_views()
+    views[note_path] = views.get(note_path, 0) + 1
+    save_views(views)
+
+
+def extract_crossrefs_from_content(content):
+    return [m.strip() for m in CROSSREF_RE.findall(content)]
+
+
+@app.route("/api/crossrefs/<path:note_path>")
+def api_crossrefs(note_path):
+    fp = NOTES_ROOT / note_path
+    if not fp.is_file() or not str(fp.resolve()).startswith(str(NOTES_ROOT)):
+        abort(404)
+
+    notes, _, _ = get_notes()
+    # Build title -> note lookup (case-insensitive)
+    title_map = {}
+    for n in notes:
+        title_map[n["title"].lower()] = n
+
+    # Forward links from this note
+    try:
+        content = fp.read_text(encoding="utf-8")
+    except Exception:
+        content = ""
+    refs = extract_crossrefs_from_content(content)
+    forward = []
+    seen = set()
+    for ref in refs:
+        key = ref.lower()
+        if key in title_map and key not in seen:
+            seen.add(key)
+            n = title_map[key]
+            forward.append({"path": n["path"], "title": n["title"]})
+
+    # Backlinks: scan all notes for references to this note's title
+    this_title = None
+    for n in notes:
+        if n["path"] == note_path:
+            this_title = n["title"]
+            break
+    backlinks = []
+    if this_title:
+        this_key = this_title.lower()
+        for n in notes:
+            if n["path"] == note_path:
+                continue
+            try:
+                other_content = (NOTES_ROOT / n["path"]).read_text(encoding="utf-8")
+            except Exception:
+                continue
+            other_refs = extract_crossrefs_from_content(other_content)
+            if any(r.lower() == this_key for r in other_refs):
+                backlinks.append({"path": n["path"], "title": n["title"]})
+
+    return jsonify({"forward": forward, "backlinks": backlinks})
+
+
+@app.route("/api/garden")
+def api_garden():
+    notes, _, _ = get_notes()
+    views = load_views()
+
+    nodes = []
+    edges = []
+    title_map = {}
+    for n in notes:
+        title_map[n["title"].lower()] = n
+        nodes.append({
+            "path": n["path"],
+            "title": n["title"],
+            "views": views.get(n["path"], 0),
+            "tags": n["tags"],
+        })
+
+    # Build edges from cross-references
+    for n in notes:
+        try:
+            content = (NOTES_ROOT / n["path"]).read_text(encoding="utf-8")
+        except Exception:
+            continue
+        refs = extract_crossrefs_from_content(content)
+        seen = set()
+        for ref in refs:
+            key = ref.lower()
+            if key in title_map and key not in seen:
+                seen.add(key)
+                target = title_map[key]
+                if target["path"] != n["path"]:
+                    edges.append({"from": n["path"], "to": target["path"]})
+
+    return jsonify({"nodes": nodes, "edges": edges})
 
 
 # --- Git operations ---

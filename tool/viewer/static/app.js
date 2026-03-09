@@ -12,6 +12,8 @@ let gitDirty = false;
 let isGitRepo = true;
 let sources = [];
 let activeSource = "";
+let searchQuery = "";
+let searchResults = null;  // null = no search active, Set = matched paths
 
 /* ── Palettes ── */
 const PALETTES = {
@@ -174,6 +176,27 @@ document.addEventListener("DOMContentLoaded", async () => {
   initResize();
   initKeyboard();
   initTitleEditing();
+  // Search filtering (debounced, hits backend for full-text + comment search)
+  let searchTimer = null;
+  document.getElementById("search-input").addEventListener("input", (e) => {
+    searchQuery = e.target.value;
+    clearTimeout(searchTimer);
+    if (!searchQuery.trim()) {
+      searchResults = null;
+      renderNoteList();
+      return;
+    }
+    searchTimer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery.trim())}`);
+        const data = await res.json();
+        searchResults = new Set(data.paths);
+      } catch {
+        searchResults = null;
+      }
+      renderNoteList();
+    }, 200);
+  });
   // Close dropdown on outside click
   document.addEventListener("click", (e) => {
     const dd = document.getElementById("source-dropdown");
@@ -227,8 +250,9 @@ async function loadNote(path) {
   // Update rendered view
   renderMarkdown(data.content);
 
-  // Load comments
+  // Load comments and cross-references
   fetchComments(path);
+  fetchCrossrefs(path);
 
   // Show render by default if nothing is visible
   if (!editVisible && !renderVisible) {
@@ -358,16 +382,22 @@ function toggleTag(tag) {
 
 /* ── Note List ── */
 function getFilteredNotes() {
-  if (activeTags.size === 0) return allNotes;
-  const tags = Array.from(activeTags);
+  let notes = allNotes;
 
-  if (filterMode === "and") {
-    // AND: note must have ALL active tags
-    return allNotes.filter(n => tags.every(t => n.tags.includes(t)));
-  } else {
-    // OR and ONLY: note must have ANY active tag
-    return allNotes.filter(n => tags.some(t => n.tags.includes(t)));
+  if (activeTags.size > 0) {
+    const tags = Array.from(activeTags);
+    if (filterMode === "and") {
+      notes = notes.filter(n => tags.every(t => n.tags.includes(t)));
+    } else {
+      notes = notes.filter(n => tags.some(t => n.tags.includes(t)));
+    }
   }
+
+  if (searchResults !== null) {
+    notes = notes.filter(n => searchResults.has(n.path));
+  }
+
+  return notes;
 }
 
 function canAddNote() {
@@ -509,8 +539,26 @@ function renderMarkdown(md) {
     }
   );
 
-  const html = marked.parse(processed, { renderer });
+  let html = marked.parse(processed, { renderer });
+
+  // Replace [[note title]] with clickable cross-reference links
+  html = html.replace(/\[\[([^\]]+)\]\]/g, (match, title) => {
+    const found = allNotes.find(n => n.title.toLowerCase() === title.trim().toLowerCase());
+    if (found) {
+      return `<a href="#" class="crossref" data-path="${found.path}">${title}</a>`;
+    }
+    return `<span class="crossref broken">${title}</span>`;
+  });
+
   document.getElementById("rendered").innerHTML = html;
+
+  // Attach click handlers to cross-reference links
+  document.querySelectorAll(".crossref[data-path]").forEach(el => {
+    el.addEventListener("click", (e) => {
+      e.preventDefault();
+      loadNote(el.dataset.path);
+    });
+  });
 }
 
 /* ── Comments ── */
@@ -536,6 +584,7 @@ function renderComments(comments) {
   comments.forEach(c => {
     const item = document.createElement("div");
     item.className = "comment-item" + (c.resolved ? " resolved" : "");
+    item.dataset.id = c.id;
 
     const text = document.createElement("div");
     text.className = "comment-text";
@@ -551,12 +600,17 @@ function renderComments(comments) {
     resolveBtn.textContent = c.resolved ? "unresolve" : "resolve";
     resolveBtn.onclick = () => toggleResolve(c.id, c.resolved);
 
+    const editBtn = document.createElement("button");
+    editBtn.textContent = "edit";
+    editBtn.onclick = () => editComment(c.id, c.text);
+
     const deleteBtn = document.createElement("button");
     deleteBtn.textContent = "delete";
     deleteBtn.onclick = () => deleteComment(c.id);
 
     meta.appendChild(time);
     meta.appendChild(resolveBtn);
+    meta.appendChild(editBtn);
     meta.appendChild(deleteBtn);
     item.appendChild(text);
     item.appendChild(meta);
@@ -610,6 +664,49 @@ async function deleteComment(commentId) {
   });
   fetchComments(selectedNote.path);
   rebuild();
+}
+
+function editComment(commentId, currentText) {
+  const item = document.querySelector(`.comment-item[data-id="${commentId}"]`);
+  if (!item) return;
+  item.classList.add("editing");
+
+  const textEl = item.querySelector(".comment-text");
+  const metaEl = item.querySelector(".comment-meta");
+  textEl.style.display = "none";
+  metaEl.style.display = "none";
+
+  const textarea = document.createElement("textarea");
+  textarea.value = currentText;
+  textarea.rows = 3;
+
+  const actions = document.createElement("div");
+  actions.className = "comment-edit-actions";
+
+  const saveBtn = document.createElement("button");
+  saveBtn.className = "btn";
+  saveBtn.textContent = "Save";
+  saveBtn.onclick = async () => {
+    const newText = textarea.value.trim();
+    if (!newText || !selectedNote) return;
+    await fetch(`/api/comments/${encodeURIComponent(selectedNote.path)}/${commentId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: newText }),
+    });
+    fetchComments(selectedNote.path);
+  };
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "btn";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.onclick = () => fetchComments(selectedNote.path);
+
+  actions.appendChild(saveBtn);
+  actions.appendChild(cancelBtn);
+  item.insertBefore(textarea, metaEl);
+  item.insertBefore(actions, metaEl);
+  textarea.focus();
 }
 
 /* ── Resize Handle ── */
@@ -961,6 +1058,9 @@ async function selectSource(path) {
       tagLevels = data.tagLevels;
       tagParents = data.tagParents || {};
       activeTags.clear();
+      searchQuery = "";
+      searchResults = null;
+      document.getElementById("search-input").value = "";
       selectedNote = null;
       editVisible = false;
       renderVisible = false;
@@ -972,6 +1072,7 @@ async function selectSource(path) {
       document.getElementById("current-path").textContent = "Select a note";
       document.getElementById("note-title").style.display = "none";
       document.getElementById("comments-section").style.display = "none";
+      document.getElementById("crossrefs-section").style.display = "none";
       buildTagBar();
       renderNoteList();
       checkGitStatus();
@@ -1016,6 +1117,341 @@ async function addSource() {
     alert("Failed: " + e.message);
   }
 }
+
+/* ── Cross-References ── */
+async function fetchCrossrefs(notePath) {
+  const section = document.getElementById("crossrefs-section");
+  try {
+    const res = await fetch(`/api/crossrefs/${encodeURIComponent(notePath)}`);
+    const data = await res.json();
+    const forward = data.forward || [];
+    const backlinks = data.backlinks || [];
+    if (forward.length === 0 && backlinks.length === 0) {
+      section.style.display = "none";
+      return;
+    }
+    renderCrossrefs(forward, backlinks);
+    section.style.display = "block";
+  } catch {
+    section.style.display = "none";
+  }
+}
+
+function renderCrossrefs(forward, backlinks) {
+  const list = document.getElementById("crossrefs-list");
+  list.innerHTML = "";
+
+  if (forward.length > 0) {
+    const group = document.createElement("div");
+    group.className = "crossref-group";
+    const label = document.createElement("div");
+    label.className = "crossref-group-label";
+    label.textContent = "Links to";
+    group.appendChild(label);
+    forward.forEach(ref => {
+      const item = document.createElement("div");
+      item.className = "crossref-item";
+      item.textContent = ref.title;
+      item.onclick = () => loadNote(ref.path);
+      group.appendChild(item);
+    });
+    list.appendChild(group);
+  }
+
+  if (backlinks.length > 0) {
+    const group = document.createElement("div");
+    group.className = "crossref-group";
+    const label = document.createElement("div");
+    label.className = "crossref-group-label";
+    label.textContent = "Linked from";
+    group.appendChild(label);
+    backlinks.forEach(ref => {
+      const item = document.createElement("div");
+      item.className = "crossref-item";
+      item.textContent = ref.title;
+      item.onclick = () => loadNote(ref.path);
+      group.appendChild(item);
+    });
+    list.appendChild(group);
+  }
+}
+
+/* ── Garden Visualization ── */
+let gardenVisible = false;
+let gardenData = null;
+let gardenAnimId = null;
+let gardenNodes = [];
+let gardenEdges = [];
+let hoveredNode = null;
+let gardenTagColors = {};
+
+function toggleGarden() {
+  gardenVisible = !gardenVisible;
+  const overlay = document.getElementById("garden-overlay");
+  const btn = document.getElementById("btn-garden");
+  btn.classList.toggle("active", gardenVisible);
+
+  if (gardenVisible) {
+    overlay.style.display = "block";
+    fetchGardenData();
+  } else {
+    overlay.style.display = "none";
+    if (gardenAnimId) {
+      cancelAnimationFrame(gardenAnimId);
+      gardenAnimId = null;
+    }
+    const legend = document.getElementById("garden-legend");
+    if (legend) legend.remove();
+  }
+}
+
+async function fetchGardenData() {
+  try {
+    const res = await fetch("/api/garden");
+    gardenData = await res.json();
+    initGarden();
+  } catch (e) {
+    console.error("Failed to fetch garden data:", e);
+  }
+}
+
+function initGarden() {
+  const canvas = document.getElementById("garden-canvas");
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  canvas.style.width = rect.width + "px";
+  canvas.style.height = rect.height + "px";
+
+  const w = rect.width;
+  const h = rect.height;
+
+  // Build nodes with physics
+  gardenNodes = gardenData.nodes.map((n, i) => ({
+    x: w * 0.2 + Math.random() * w * 0.6,
+    y: h * 0.2 + Math.random() * h * 0.6,
+    vx: 0,
+    vy: 0,
+    radius: Math.max(8, Math.min(40, 8 + Math.sqrt(n.views) * 4)),
+    path: n.path,
+    title: n.title,
+    views: n.views,
+    tags: n.tags,
+  }));
+
+  // Build edge index
+  const pathIndex = {};
+  gardenNodes.forEach((n, i) => { pathIndex[n.path] = i; });
+  gardenEdges = gardenData.edges
+    .filter(e => pathIndex[e.from] !== undefined && pathIndex[e.to] !== undefined)
+    .map(e => ({ from: pathIndex[e.from], to: pathIndex[e.to] }));
+
+  // Build tag color map and legend
+  gardenTagColors = buildTagColorMap();
+  renderGardenLegend();
+
+  // Mouse interaction
+  canvas.onmousemove = (e) => {
+    const cr = canvas.getBoundingClientRect();
+    const mx = e.clientX - cr.left;
+    const my = e.clientY - cr.top;
+    hoveredNode = null;
+    for (const node of gardenNodes) {
+      const dx = node.x - mx;
+      const dy = node.y - my;
+      if (dx * dx + dy * dy < (node.radius + 4) * (node.radius + 4)) {
+        hoveredNode = node;
+        break;
+      }
+    }
+    canvas.style.cursor = hoveredNode ? "pointer" : "default";
+  };
+
+  canvas.onclick = (e) => {
+    if (hoveredNode) {
+      loadNote(hoveredNode.path);
+      toggleGarden();
+    }
+  };
+
+  // Start animation
+  if (gardenAnimId) cancelAnimationFrame(gardenAnimId);
+  gardenAnimLoop();
+}
+
+function buildTagColorMap() {
+  const topTags = new Set();
+  for (const node of gardenNodes) {
+    if (node.tags.length > 0) {
+      const tag = node.tags.find(t => tagLevels[t] === "top") || node.tags[0];
+      topTags.add(tag);
+    }
+  }
+  const tags = Array.from(topTags).sort();
+  const map = {};
+  tags.forEach((tag, i) => {
+    const hue = (i * 360 / tags.length) % 360;
+    map[tag] = `hsl(${hue}, 60%, 55%)`;
+  });
+  return map;
+}
+
+function renderGardenLegend() {
+  let legend = document.getElementById("garden-legend");
+  if (!legend) {
+    legend = document.createElement("div");
+    legend.id = "garden-legend";
+    document.getElementById("garden-overlay").appendChild(legend);
+  }
+
+  let html = '<div class="legend-title">Legend</div>';
+  html += '<div class="legend-item"><span class="legend-circle legend-small"></span><span class="legend-circle legend-large"></span> Size = view count</div>';
+  html += '<div class="legend-item"><span class="legend-line"></span> Line = cross-reference</div>';
+
+  const tags = Object.keys(gardenTagColors).sort();
+  if (tags.length > 0) {
+    html += '<div class="legend-divider"></div>';
+    for (const tag of tags) {
+      html += `<div class="legend-item"><span class="legend-dot" style="background:${gardenTagColors[tag]}"></span> ${tag}</div>`;
+    }
+  }
+
+  legend.innerHTML = html;
+}
+
+function gardenAnimLoop() {
+  const canvas = document.getElementById("garden-canvas");
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.width / dpr;
+  const h = canvas.height / dpr;
+
+  // Physics step
+  const repulseK = 2000;
+  const springK = 0.005;
+  const restLen = 120;
+  const centerK = 0.001;
+  const damping = 0.9;
+  const t = Date.now() / 1000;
+
+  // Repulsion
+  for (let i = 0; i < gardenNodes.length; i++) {
+    for (let j = i + 1; j < gardenNodes.length; j++) {
+      const a = gardenNodes[i];
+      const b = gardenNodes[j];
+      let dx = a.x - b.x;
+      let dy = a.y - b.y;
+      const d2 = dx * dx + dy * dy;
+      const d = Math.sqrt(d2) || 1;
+      const f = Math.min(repulseK / d2, 5);
+      const fx = (dx / d) * f;
+      const fy = (dy / d) * f;
+      a.vx += fx; a.vy += fy;
+      b.vx -= fx; b.vy -= fy;
+    }
+  }
+
+  // Attraction (springs)
+  for (const edge of gardenEdges) {
+    const a = gardenNodes[edge.from];
+    const b = gardenNodes[edge.to];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const f = springK * (d - restLen);
+    const fx = (dx / d) * f;
+    const fy = (dy / d) * f;
+    a.vx += fx; a.vy += fy;
+    b.vx -= fx; b.vy -= fy;
+  }
+
+  // Centering + damping + update
+  for (const node of gardenNodes) {
+    node.vx += (w / 2 - node.x) * centerK;
+    node.vy += (h / 2 - node.y) * centerK;
+    node.vx *= damping;
+    node.vy *= damping;
+    node.x += node.vx;
+    node.y += node.vy;
+    node.x = Math.max(node.radius, Math.min(w - node.radius, node.x));
+    node.y = Math.max(node.radius, Math.min(h - node.radius, node.y));
+  }
+
+  // Read theme colors
+  const cs = getComputedStyle(document.documentElement);
+  const bgColor = cs.getPropertyValue("--bg").trim();
+  const borderColor = cs.getPropertyValue("--border").trim();
+  const textColor = cs.getPropertyValue("--text").trim();
+  const accentColor = cs.getPropertyValue("--accent").trim();
+
+  // Clear
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = bgColor;
+  ctx.fillRect(0, 0, w, h);
+
+  // Draw edges (curved)
+  ctx.strokeStyle = borderColor;
+  ctx.lineWidth = 1;
+  for (const edge of gardenEdges) {
+    const a = gardenNodes[edge.from];
+    const b = gardenNodes[edge.to];
+    const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2;
+    const cx = mx + (a.y - b.y) * 0.15;
+    const cy = my + (b.x - a.x) * 0.15;
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.quadraticCurveTo(cx, cy, b.x, b.y);
+    ctx.stroke();
+  }
+
+  // Draw nodes
+  for (const node of gardenNodes) {
+    const isHovered = node === hoveredNode;
+    const breath = 1 + Math.sin(t * 2 + node.x * 0.01) * 0.05;
+    const r = node.radius * breath * (isHovered ? 1.3 : 1);
+
+    // Color by tag name
+    const primaryTag = node.tags.find(t => tagLevels[t] === "top") || node.tags[0];
+    let color = gardenTagColors[primaryTag] || borderColor;
+    if (isHovered) color = accentColor;
+
+    ctx.beginPath();
+    ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.globalAlpha = isHovered ? 1 : 0.8;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Label
+    const maxLabelLen = isHovered ? 40 : 12;
+    let label = node.title;
+    if (label.length > maxLabelLen) label = label.slice(0, maxLabelLen - 1) + "\u2026";
+    ctx.font = `${isHovered ? 13 : 11}px ${cs.getPropertyValue("--font-mono").trim() || "monospace"}`;
+    ctx.fillStyle = textColor;
+    ctx.textAlign = "center";
+    ctx.fillText(label, node.x, node.y + r + 14);
+  }
+
+  ctx.restore();
+
+  gardenAnimId = requestAnimationFrame(gardenAnimLoop);
+}
+
+// Resize handler for garden
+window.addEventListener("resize", () => {
+  if (gardenVisible && gardenData) {
+    const canvas = document.getElementById("garden-canvas");
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    canvas.style.width = rect.width + "px";
+    canvas.style.height = rect.height + "px";
+  }
+});
 
 async function removeSource(path, name) {
   if (!confirm(`Remove source "${name}"?`)) return;
