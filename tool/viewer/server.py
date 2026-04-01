@@ -5,7 +5,9 @@ import os
 import json
 import re
 import subprocess
-from datetime import date
+import time
+import uuid
+from datetime import date, datetime, timezone
 from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory, abort
 
@@ -96,11 +98,21 @@ def scan_notes():
             global_tag_levels.update(tag_levels)
             global_tag_parents.update(tag_parents)
             stat = fp.stat()
+            # Count comments from sidecar file
+            sidecar = fp.parent / f".{fp.stem}.comments.json"
+            comment_count = 0
+            if sidecar.is_file():
+                try:
+                    cdata = json.loads(sidecar.read_text(encoding="utf-8"))
+                    comment_count = len([c for c in cdata.get("comments", []) if not c.get("resolved")])
+                except Exception:
+                    pass
             notes.append({
                 "path": rel,
                 "title": title,
                 "tags": tags,
                 "modified": stat.st_mtime,
+                "commentCount": comment_count,
             })
     # Include empty top-level dirs as tags so new categories show up immediately
     for entry in sorted(NOTES_ROOT.iterdir()):
@@ -187,6 +199,36 @@ def api_notes():
     return jsonify({"notes": notes, "tagLevels": tag_levels, "tagParents": tag_parents})
 
 
+@app.route("/api/search")
+def api_search():
+    q = request.args.get("q", "").strip().lower()
+    if not q:
+        return jsonify({"paths": []})
+    notes, _, _ = get_notes()
+    matched = set()
+    for n in notes:
+        # Match title
+        if q in n["title"].lower():
+            matched.add(n["path"])
+            continue
+        # Match file content
+        fp = NOTES_ROOT / n["path"]
+        try:
+            content = fp.read_text(encoding="utf-8").lower()
+            if q in content:
+                matched.add(n["path"])
+                continue
+        except Exception:
+            pass
+        # Match comments
+        comments = load_comments(n["path"])
+        for c in comments:
+            if q in c.get("text", "").lower():
+                matched.add(n["path"])
+                break
+    return jsonify({"paths": list(matched)})
+
+
 @app.route("/api/note/<path:note_path>")
 def api_note(note_path):
     fp = NOTES_ROOT / note_path
@@ -196,6 +238,7 @@ def api_note(note_path):
         content = fp.read_text(encoding="utf-8")
     except Exception:
         abort(500)
+    increment_view(note_path)
     return jsonify({"path": note_path, "content": content})
 
 
@@ -369,12 +412,224 @@ def api_rename_note():
         return jsonify({"ok": False, "error": "A note with that name already exists"}), 409
 
     try:
+        # Move sidecar comments file if it exists
+        old_comments = old_fp.parent / f".{old_fp.stem}.comments.json"
         old_fp.rename(new_fp)
+        if old_comments.is_file():
+            new_comments = new_fp.parent / f".{new_fp.stem}.comments.json"
+            old_comments.rename(new_comments)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
     new_path = str(new_fp.relative_to(NOTES_ROOT))
     return jsonify({"ok": True, "newPath": new_path})
+
+
+# --- Comments (sidecar JSON) ---
+
+def comments_path(note_path):
+    """Return the sidecar .comments.json path for a given note path."""
+    fp = NOTES_ROOT / note_path
+    cp = fp.parent / f".{fp.stem}.comments.json"
+    if not str(cp.resolve()).startswith(str(NOTES_ROOT)):
+        raise ValueError("sidecar path escapes notes root")
+    return cp
+
+
+def load_comments(note_path):
+    """Load comments for a note. Returns list (empty if no sidecar)."""
+    cp = comments_path(note_path)
+    if not cp.is_file():
+        return []
+    try:
+        data = json.loads(cp.read_text(encoding="utf-8"))
+        return data.get("comments", [])
+    except Exception:
+        return []
+
+
+def save_comments(note_path, comments):
+    """Save comments list to sidecar file. Deletes file if empty."""
+    cp = comments_path(note_path)
+    if not comments:
+        if cp.is_file():
+            cp.unlink()
+        return
+    cp.write_text(json.dumps({"comments": comments}, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+@app.route("/api/comments/<path:note_path>")
+def api_get_comments(note_path):
+    fp = NOTES_ROOT / note_path
+    if not fp.is_file() or not str(fp.resolve()).startswith(str(NOTES_ROOT)):
+        abort(404)
+    return jsonify({"comments": load_comments(note_path)})
+
+
+@app.route("/api/comments/<path:note_path>", methods=["POST"])
+def api_add_comment(note_path):
+    fp = NOTES_ROOT / note_path
+    if not fp.is_file() or not str(fp.resolve()).startswith(str(NOTES_ROOT)):
+        abort(404)
+    data = request.get_json(force=True)
+    text = data.get("text", "").strip()
+    if not text:
+        return jsonify({"ok": False, "error": "Empty comment"}), 400
+    comments = load_comments(note_path)
+    comment = {
+        "id": f"c_{int(time.time())}_{uuid.uuid4().hex[:6]}",
+        "text": text,
+        "created": datetime.now(timezone.utc).isoformat(),
+        "resolved": False,
+    }
+    comments.append(comment)
+    save_comments(note_path, comments)
+    return jsonify({"ok": True, "comment": comment})
+
+
+@app.route("/api/comments/<path:note_path>/<comment_id>", methods=["PUT"])
+def api_update_comment(note_path, comment_id):
+    fp = NOTES_ROOT / note_path
+    if not fp.is_file() or not str(fp.resolve()).startswith(str(NOTES_ROOT)):
+        abort(404)
+    data = request.get_json(force=True)
+    comments = load_comments(note_path)
+    for c in comments:
+        if c["id"] == comment_id:
+            if "text" in data:
+                c["text"] = data["text"]
+            if "resolved" in data:
+                c["resolved"] = data["resolved"]
+            save_comments(note_path, comments)
+            return jsonify({"ok": True, "comment": c})
+    return jsonify({"ok": False, "error": "Comment not found"}), 404
+
+
+@app.route("/api/comments/<path:note_path>/<comment_id>", methods=["DELETE"])
+def api_delete_comment(note_path, comment_id):
+    fp = NOTES_ROOT / note_path
+    if not fp.is_file() or not str(fp.resolve()).startswith(str(NOTES_ROOT)):
+        abort(404)
+    comments = load_comments(note_path)
+    comments = [c for c in comments if c["id"] != comment_id]
+    save_comments(note_path, comments)
+    return jsonify({"ok": True})
+
+
+# --- View tracking ---
+
+CROSSREF_RE = re.compile(r'\[\[([^\]]+)\]\]')
+
+
+def load_views():
+    vp = NOTES_ROOT / ".views.json"
+    if not vp.is_file():
+        return {}
+    try:
+        return json.loads(vp.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_views(views):
+    vp = NOTES_ROOT / ".views.json"
+    vp.write_text(json.dumps(views, indent=2), encoding="utf-8")
+
+
+def increment_view(note_path):
+    views = load_views()
+    views[note_path] = views.get(note_path, 0) + 1
+    save_views(views)
+
+
+def extract_crossrefs_from_content(content):
+    return [m.strip() for m in CROSSREF_RE.findall(content)]
+
+
+@app.route("/api/crossrefs/<path:note_path>")
+def api_crossrefs(note_path):
+    fp = NOTES_ROOT / note_path
+    if not fp.is_file() or not str(fp.resolve()).startswith(str(NOTES_ROOT)):
+        abort(404)
+
+    notes, _, _ = get_notes()
+    # Build title -> note lookup (case-insensitive)
+    title_map = {}
+    for n in notes:
+        title_map[n["title"].lower()] = n
+
+    # Forward links from this note
+    try:
+        content = fp.read_text(encoding="utf-8")
+    except Exception:
+        content = ""
+    refs = extract_crossrefs_from_content(content)
+    forward = []
+    seen = set()
+    for ref in refs:
+        key = ref.lower()
+        if key in title_map and key not in seen:
+            seen.add(key)
+            n = title_map[key]
+            forward.append({"path": n["path"], "title": n["title"]})
+
+    # Backlinks: scan all notes for references to this note's title
+    this_title = None
+    for n in notes:
+        if n["path"] == note_path:
+            this_title = n["title"]
+            break
+    backlinks = []
+    if this_title:
+        this_key = this_title.lower()
+        for n in notes:
+            if n["path"] == note_path:
+                continue
+            try:
+                other_content = (NOTES_ROOT / n["path"]).read_text(encoding="utf-8")
+            except Exception:
+                continue
+            other_refs = extract_crossrefs_from_content(other_content)
+            if any(r.lower() == this_key for r in other_refs):
+                backlinks.append({"path": n["path"], "title": n["title"]})
+
+    return jsonify({"forward": forward, "backlinks": backlinks})
+
+
+@app.route("/api/garden")
+def api_garden():
+    notes, _, _ = get_notes()
+    views = load_views()
+
+    nodes = []
+    edges = []
+    title_map = {}
+    for n in notes:
+        title_map[n["title"].lower()] = n
+        nodes.append({
+            "path": n["path"],
+            "title": n["title"],
+            "views": views.get(n["path"], 0),
+            "tags": n["tags"],
+        })
+
+    # Build edges from cross-references
+    for n in notes:
+        try:
+            content = (NOTES_ROOT / n["path"]).read_text(encoding="utf-8")
+        except Exception:
+            continue
+        refs = extract_crossrefs_from_content(content)
+        seen = set()
+        for ref in refs:
+            key = ref.lower()
+            if key in title_map and key not in seen:
+                seen.add(key)
+                target = title_map[key]
+                if target["path"] != n["path"]:
+                    edges.append({"from": n["path"], "to": target["path"]})
+
+    return jsonify({"nodes": nodes, "edges": edges})
 
 
 # --- Git operations ---
@@ -486,4 +741,4 @@ if __name__ == "__main__":
             print(f"Found {len(_notes_cache)} notes")
     else:
         print("No active source. Add a source via the UI.")
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=5001, debug=True)
