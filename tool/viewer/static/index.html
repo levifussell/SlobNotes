@@ -13,12 +13,14 @@
     <!-- Toolbar -->
     <div id="toolbar">
       <button class="btn" id="btn-sidebar" onclick="toggleSidebar()">List</button>
+      <span class="slunk-icon" id="slunk-icon" onclick="cycleSlunkIcon()"></span>
       <span class="logo">slob notes</span>
       <button class="btn" id="btn-palette" onclick="cyclePalette()">Default</button>
       <div id="source-dropdown" class="dropdown">
         <button class="btn" id="btn-source" onclick="toggleSourceDropdown()">Source</button>
         <div id="source-menu" class="dropdown-menu"></div>
       </div>
+      <button class="btn" id="btn-slunky" onclick="toggleSlunky()">Slunky</button>
       <button class="btn" id="btn-rebuild" onclick="rebuild()">Rebuild</button>
       <button class="btn" id="btn-push" onclick="gitCommit()" disabled title="Commit note changes">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -85,6 +87,16 @@
       </div>
     </div>
   </div>
+
+  <!-- Slunky displacement filters (inert until referenced by CSS) -->
+  <svg style="position:absolute;width:0;height:0" aria-hidden="true">
+    <filter id="sh1"><feTurbulence type="turbulence" baseFrequency="0.05" numOctaves="3" seed="2" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2" xChannelSelector="R" yChannelSelector="G"/></filter>
+    <filter id="sh2"><feTurbulence type="turbulence" baseFrequency="0.05" numOctaves="3" seed="9" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2" xChannelSelector="R" yChannelSelector="G"/></filter>
+    <filter id="sh3"><feTurbulence type="turbulence" baseFrequency="0.05" numOctaves="3" seed="17" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="2" xChannelSelector="R" yChannelSelector="G"/></filter>
+    <filter id="shS1"><feTurbulence type="turbulence" baseFrequency="0.04" numOctaves="4" seed="1" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="4" xChannelSelector="R" yChannelSelector="G"/></filter>
+    <filter id="shS2"><feTurbulence type="turbulence" baseFrequency="0.04" numOctaves="4" seed="7" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="4" xChannelSelector="R" yChannelSelector="G"/></filter>
+    <filter id="shS3"><feTurbulence type="turbulence" baseFrequency="0.04" numOctaves="4" seed="13" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="4" xChannelSelector="R" yChannelSelector="G"/></filter>
+  </svg>
 
   <script src="/static/app.js"></script>
 </body>

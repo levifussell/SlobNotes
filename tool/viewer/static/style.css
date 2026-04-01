@@ -1,3 +1,41 @@
+/* ── Slunky shimmer ── */
+@keyframes shimmer {
+  0%,33.32%   { filter: url(#sh1); }
+  33.33%,66.65% { filter: url(#sh2); }
+  66.66%,100% { filter: url(#sh3); }
+}
+@keyframes shimmer-strong {
+  0%,33.32%   { filter: url(#shS1); }
+  33.33%,66.65% { filter: url(#shS2); }
+  66.66%,100% { filter: url(#shS3); }
+}
+
+body.slunky #toolbar .logo {
+  animation: shimmer-strong 0.6s steps(1) infinite;
+  will-change: filter;
+}
+body.slunky #toolbar {
+  animation: shimmer 0.9s steps(1) infinite;
+  will-change: filter;
+}
+body.slunky #rendered h1,
+body.slunky #rendered h2,
+body.slunky #rendered h3,
+body.slunky #rendered h4 {
+  animation: shimmer-strong 0.6s steps(1) infinite;
+  will-change: filter;
+}
+body.slunky #resize-handle,
+body.slunky #right-toolbar,
+body.slunky .note-item {
+  animation: shimmer 0.9s steps(1) infinite;
+  will-change: filter;
+}
+body.slunky #btn-slunky {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* ── Reset & Base ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -27,6 +65,23 @@ html, body {
   background: var(--bg-alt);
   border-bottom: var(--border-w) solid var(--border);
   flex-shrink: 0;
+}
+
+.slunk-icon {
+  display: inline-flex;
+  align-items: center;
+  width: 22px;
+  height: 22px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.slunk-icon svg {
+  width: 100%;
+  height: 100%;
+}
+body.slunky .slunk-icon {
+  animation: shimmer-strong 0.6s steps(1) infinite;
+  will-change: filter;
 }
 
 #toolbar .logo {
@@ -297,12 +352,30 @@ html, body {
 /* ── Tag Bar ── */
 #tag-bar {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: var(--gap);
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
   border-bottom: var(--border-w) solid var(--border);
   background: var(--bg-alt);
   flex-shrink: 0;
+}
+
+.tag-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: var(--gap);
+}
+
+.tag-group-low {
+  border-top: var(--border-w) solid var(--border);
+  max-height: 96px;
+  overflow-y: auto;
+}
+
+.tag-group-low .tag-pill {
+  font-size: 9px;
+  padding: 1px 6px;
 }
 
 .tag-pill {

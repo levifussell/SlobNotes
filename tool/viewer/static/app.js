@@ -1,3 +1,28 @@
+/* ── Slunk Characters ── */
+const SLUNK_CHARS = [
+  [".#....#.",".#....#.",".######.","##.##.##",".######.",".######.","..#..#..",".##..##."],
+  ["..####..",".######.",".#.##.#.",".######.","..####..","..####..","..#..#..",".##..##."],
+  ["...##...",".######.","##.##.##","########","..####..",".######.",".#....#.",".#....#."],
+  ["..####..",".######.","##.##.##","########","########","########","########","#.#..#.#"],
+  ["..####..",".######.","###.####","####.###","########",".######.","..####.."],
+  ["..##..",".####.","#.##.#","#.##.#",".####.","..##..","..##..","..##..","..##..",".#..#."],
+  [".##....##.","#..#..#..#",".##....##.","..######..","..######..","..######..","...#..#...","..##..##.."],
+  ["..#....#..","..#....#..",".########.","##.####.##","##########",".########."],
+];
+
+function slunkGridToSVG(grid) {
+  const rows = grid.length;
+  const cols = Math.max(...grid.map(r => r.length));
+  let rects = "";
+  for (let y = 0; y < rows; y++)
+    for (let x = 0; x < grid[y].length; x++)
+      if (grid[y][x] === "#") rects += `<rect x="${x}" y="${y}" width="1" height="1"/>`;
+  return `<svg viewBox="0 0 ${cols} ${rows}" fill="currentColor" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg">${rects}</svg>`;
+}
+
+const slunkSVGs = SLUNK_CHARS.map(slunkGridToSVG);
+let slunkIdx = Math.floor(Math.random() * slunkSVGs.length);
+
 /* ── State ── */
 let allNotes = [];
 let tagLevels = {};       // { tagName: "top"|"mid"|"low" }
@@ -140,6 +165,30 @@ function loadSavedPalette() {
   }
 }
 
+/* ── Slunky ── */
+function toggleSlunky() {
+  document.body.classList.toggle("slunky");
+  const on = document.body.classList.contains("slunky");
+  localStorage.setItem("slunky", on ? "1" : "");
+}
+
+function initSlunkIcon() {
+  const el = document.getElementById("slunk-icon");
+  el.innerHTML = slunkSVGs[slunkIdx];
+}
+
+function cycleSlunkIcon() {
+  slunkIdx = (slunkIdx + 1) % slunkSVGs.length;
+  const el = document.getElementById("slunk-icon");
+  el.innerHTML = slunkSVGs[slunkIdx];
+}
+
+function loadSlunky() {
+  if (localStorage.getItem("slunky") === "1") {
+    document.body.classList.add("slunky");
+  }
+}
+
 /* ── Mobile Sidebar ── */
 function toggleSidebar() {
   document.getElementById("left-panel").classList.toggle("mobile-open");
@@ -154,6 +203,8 @@ function closeSidebarOnSelect() {
 /* ── Init ── */
 document.addEventListener("DOMContentLoaded", async () => {
   loadSavedPalette();
+  loadSlunky();
+  initSlunkIcon();
   await fetchSources();
   if (sources.length === 0) {
     showNoSourceState();
@@ -293,6 +344,11 @@ function buildTagBar() {
   const bar = document.getElementById("tag-bar");
   bar.innerHTML = "";
 
+  const dirGroup = document.createElement("div");
+  dirGroup.className = "tag-group tag-group-dir";
+  const lowGroup = document.createElement("div");
+  lowGroup.className = "tag-group tag-group-low";
+
   // Desktop-only "+" button to create a new category
   if (window.innerWidth > 768) {
     const addBtn = document.createElement("button");
@@ -300,7 +356,7 @@ function buildTagBar() {
     addBtn.textContent = "+";
     addBtn.title = "New category";
     addBtn.onclick = () => createDir();
-    bar.appendChild(addBtn);
+    dirGroup.appendChild(addBtn);
   }
 
   tags.forEach(tag => {
@@ -316,8 +372,11 @@ function buildTagBar() {
     pill.className = "tag-pill level-" + level + (activeTags.has(tag) ? " active" : "");
     pill.textContent = tag;
     pill.onclick = () => toggleTag(tag);
-    bar.appendChild(pill);
+    (level === "low" ? lowGroup : dirGroup).appendChild(pill);
   });
+
+  bar.appendChild(dirGroup);
+  if (lowGroup.children.length > 0) bar.appendChild(lowGroup);
 }
 
 function toggleTag(tag) {
@@ -533,6 +592,19 @@ function initKeyboard() {
       if (document.activeElement === document.getElementById("editor")) {
         document.getElementById("editor").blur();
       }
+    }
+  });
+
+  // Tab inserts two spaces in editor
+  document.getElementById("editor").addEventListener("keydown", (e) => {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const ta = e.target;
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      ta.value = ta.value.substring(0, start) + "  " + ta.value.substring(end);
+      ta.selectionStart = ta.selectionEnd = start + 2;
+      ta.dispatchEvent(new Event("input"));
     }
   });
 
